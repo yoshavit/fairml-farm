@@ -2,16 +2,26 @@ import tensorflow as tf
 import pandas as pd
 import urllib
 
-def get_adult_dataset():
+def get_adult_dataset(data_format="numpy", normalize=False):
     """ Download and preprocess the "Adult" dataset
+    Args:
+        data_format - the format in which the data is returned, with the labels
+            always as follows: ["data", "label", "protected"]
+            "numpy" - returns a dict of numpy arrays with the above keys
+            "tfdataset" - returns a Tensorflow Dataset object, where each item
+                is a dict with the above keys
+        normalize - if True, training data are normalized to be 0 mean and unit
+            variance, and test data have the same transformations (computed on
+            training set) applied to them.
 
     Returns:
-        train_dataset: Tensorflow Dataset, with the fields
-            ["data", "label", "protected"]
+        train_dataset: an object containing the training data (of format
+            specified by tfdataset)
         validation_dataset: same as train_dataset, but with validation samples
         data_names: a list of the names of the data columns
 
     """
+    assert data_format in ["numpy", "tfdataset"]
     # Download the 'Adult' dataset from the UCI dataset archive
     url = 'http://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.'
     traindata_url = url + 'data'
@@ -39,12 +49,20 @@ def get_adult_dataset():
     datanames = full_df.drop(columns=[targetname, protectedname]).columns
     # split the data back into train and test
     train_df, val_df = full_df.iloc[:trainset_size, :], full_df.iloc[trainset_size:, :]
+    if normalize:
+        train_data = train_df.drop(columns=[targetname, protectedname]).values
+        train_data_mean = train_data.mean(axis=0)
+        train_data_stdev = train_data.std(axis=0)
     datasets = []
     for df in [train_df, val_df]:
-        dataset = tf.data.Dataset.from_tensor_slices(
-            {"data": df.drop(columns=[targetname, protectedname]).values,
-             "label": df[targetname].factorize()[0], # discretize and grab labels
-             "protected": df[protectedname].factorize()[0]})
+        data = df.drop(columns=[targetname, protectedname]).values
+        if normalize:
+            data = (data - train_data_mean)/train_data_stdev
+        dataset = {"data": data,
+                   "label": df[targetname].factorize()[0], # discretize and grab labels
+                   "protected": df[protectedname].factorize()[0]}
+        if data_format == "tfdataset":
+            dataset = tf.data.Dataset.from_tensor_slices(dataset)
         datasets += [dataset]
     train_dataset, validation_dataset = datasets
     return train_dataset, validation_dataset, datanames
