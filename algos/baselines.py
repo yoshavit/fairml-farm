@@ -83,7 +83,7 @@ class SimpleNN(BaseClassifier):
         self.global_step = tf.Variable(0, trainable=False)
         inc_global_step = tf.assign_add(self.global_step, batchsize)
         with tf.control_dependencies([opt_op, inc_global_step]):
-            self.train_op = ema.apply(train_metrics)
+            self.train_op = U.ema_apply_wo_nans(ema, train_metrics)
         self.train_summaries = tf.summary.merge([
             tf.summary.scalar(metric_name, ema.average(metric), family="train")
             for metric_name, metric in zip(metric_names, train_metrics)])
@@ -93,7 +93,7 @@ class SimpleNN(BaseClassifier):
         # validation samples - does not precisely calculate validation error,
         # but rather works over a certain window, with decay at beginning of
         # that window.
-        self.validation_op = ema.apply(val_metrics)
+        self.validation_op = U.ema_apply_wo_nans(ema, val_metrics)
         # Reinitialize the moving average (i.e. return to 0.0) for each of the
         # validation metrics
         self.restart_validation_op = tf.variables_initializer([

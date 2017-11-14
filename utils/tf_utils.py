@@ -16,6 +16,31 @@ def _linear(x, output_size, name):
 def lrelu(x, leak=0.2, name="lrelu"):
     return tf.maximum(x, leak*x, name=name)
 
+def ema_apply_wo_nans(ema, tensors):
+    """Updates ExponentialMovingAverage (ema) with current values of tensors
+    (similar to ema.apply(tensors) ), while ignoring tensors with NaN values.
+    """
+    return [tf.cond(tf.is_nan(t),
+                    true_fn = lambda: tf.no_op(),
+                    false_fn = lambda: ema.apply([t]))
+            for t in tensors]
+
+# ====== Tensorboard Ops ====================
+from multiprocessing import Process
+import subprocess
+
+def launch_tensorboard(logdir, tensorboard_path=None):
+    if tensorboard_path is None:
+        import platform
+        assert platform.node != 'Yonadavs-MacBook-Air.local', "New users must specify path to tensorboard"
+        tensorboard_path = '/Users/yonadav/anaconda/envs/tensorflow3.5/bin/tensorboard'
+    def _call_tensorboard():
+        subprocess.call("{} --logdir={}".format(tensorboard_path, logdir),
+                        shell=True)
+    tensorboard_process = Process(target=_call_tensorboard)
+    tensorboard_process.start()
+    return tensorboard_process
+
 # ======= Bias-specific Ops =========================
 
 def demographic_parity_discrimination(Yhat, S):

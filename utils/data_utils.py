@@ -1,8 +1,9 @@
 import tensorflow as tf
 import pandas as pd
-import urllib
+import urllib.request
+from os import path
 
-def get_adult_dataset(data_format="numpy", normalize=False):
+def get_adult_dataset(data_format="numpy", datadir=None, normalize=False):
     """ Download and preprocess the "Adult" dataset
     Args:
         data_format - the format in which the data is returned, with the labels
@@ -10,6 +11,10 @@ def get_adult_dataset(data_format="numpy", normalize=False):
             "numpy" - returns a dict of numpy arrays with the above keys
             "tfdataset" - returns a Tensorflow Dataset object, where each item
                 is a dict with the above keys
+        data_dir - if not None, try looking in this dir for the dataset before
+            redownloading, and save data to this directory after downloading.
+            The files in question would be named:
+            datadir + "/adult_" + [train,validation] + ".txt"
         normalize - if True, training data are normalized to be 0 mean and unit
             variance, and test data have the same transformations (computed on
             training set) applied to them.
@@ -26,12 +31,19 @@ def get_adult_dataset(data_format="numpy", normalize=False):
     url = 'http://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.'
     traindata_url = url + 'data'
     valdata_url = url + 'test'
-    trainfile = urllib.request.urlopen(traindata_url)
-    valfile = urllib.request.urlopen(valdata_url)
+    if datadir is not None:
+        trainfile = path.join(datadir, 'adult_train.txt')
+        valfile = path.join(datadir, 'adult_val.txt')
+        if not(path.exists(trainfile) and path.exists(valfile)):
+            trainfile, _ = urllib.request.urlretrieve(traindata_url, trainfile)
+            valfile, _ = urllib.request.urlretrieve(valdata_url, valfile)
+    else:
+        trainfile = urllib.request.urlopen(traindata_url)
+        valfile = urllib.request.urlopen(valdata_url)
 
     names = ["age","workclass","fnlwgt","education","education-num",
              "marital-status","occupation","relationship","race","sex",
-             "capital-gain","capital-loss", "hours-per-week",
+             "capital-gain","capital-loss","hours-per-week",
              "native-country","income>50k"]
     continuousnames = ["age", "fnlwgt", "education-num", "capital-gain",
                        "capital-loss", "hours-per-week"]
