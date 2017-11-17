@@ -113,6 +113,9 @@ class SimpleNN(BaseClassifier):
         self.saver = tf.train.Saver()
         self.sess.run(tf.global_variables_initializer())
 
+    def build(self, inputsize, layersizes, with_dropout):
+        pass
+
     def build_network(self, X, layersizes, with_dropout, reuse=False):
         z = X
         with tf.variable_scope("classifier", reuse=reuse):

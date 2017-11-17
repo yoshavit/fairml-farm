@@ -3,30 +3,18 @@ import pandas as pd
 import urllib.request
 from os import path
 
-def get_adult_dataset(data_format="numpy", datadir=None, normalize=False):
-    """ Download and preprocess the "Adult" dataset
+def fetch_adult_dataset(datadir=None):
+    """ Download and preprocess the "Adult" dataset into a dataframe
     Args:
-        data_format - the format in which the data is returned, with the labels
-            always as follows: ["data", "label", "protected"]
-            "numpy" - returns a dict of numpy arrays with the above keys
-            "tfdataset" - returns a Tensorflow Dataset object, where each item
-                is a dict with the above keys
-        data_dir - if not None, try looking in this dir for the dataset before
+        datadir - if not None, try looking in this dir for the dataset before
             redownloading, and save data to this directory after downloading.
             The files in question would be named:
             datadir + "/adult_" + [train,validation] + ".txt"
-        normalize - if True, training data are normalized to be 0 mean and unit
-            variance, and test data have the same transformations (computed on
-            training set) applied to them.
-
     Returns:
-        train_dataset: an object containing the training data (of format
-            specified by tfdataset)
+        training_dataset: a dataframe containing the training data, with dummy
+            variables as appropriate
         validation_dataset: same as train_dataset, but with validation samples
-        data_names: a list of the names of the data columns
-
     """
-    assert data_format in ["numpy", "tfdataset"]
     # Download the 'Adult' dataset from the UCI dataset archive
     url = 'http://archive.ics.uci.edu/ml/machine-learning-databases/adult/adult.'
     traindata_url = url + 'data'
@@ -58,26 +46,51 @@ def get_adult_dataset(data_format="numpy", datadir=None, normalize=False):
     full_df = pd.concat([train_df, val_df]).drop(columns=["fnlwgt"])
     # construct dummy variables for the categorical vars
     full_df = pd.get_dummies(full_df, columns=categoricalnames)
-    datanames = full_df.drop(columns=[targetname, protectedname]).columns
     # split the data back into train and test
-    train_df, val_df = full_df.iloc[:trainset_size, :], full_df.iloc[trainset_size:, :]
+    training_dataset = full_df.iloc[:trainset_size, :]
+    validation_dataset = full_df.iloc[trainset_size:, :]
+    return training_dataset, validation_dataset
+
+def adult_dataset(datadir=None,
+                  normalize=False,
+                  removable_columns=['sex', 'income>50k'],
+                  objective=lambda s: s['income>50k'] == " <=50K."
+                 ):
+    """Fetches and processes the Adult dataset into data, protected, and label
+    groupings.
+    Args:
+        datadir - the directory to which the data had been previously
+            downloaded, or will be downloaded.
+        normalize - if True, training data are normalized to be 0 mean and unit
+            variance, and test data have the same transformations (computed on
+            training set) applied to them. Default False.
+        removable_columns - columns from the original dataset to be removed
+            during execution. Default ['sex', 'income>50k']
+        objective -  function, computed on a row in the adult dataset, for
+            extracting a label from the dataset.
+            Default: lambda s: s['income>50k']
+    Returns:
+        train_dataset - a dictionary of three numpy arrays, containing fields:
+            "data" - the data to be trained on
+            "protected" - the attribute to be protected
+            "label" - the label to be predicted
+        validation_dataset - same as train_dataset, but for the validation
+            examples
+    """
+    protectedname = 'sex'
+    train_df, val_df = fetch_adult_dataset(datadir)
+    train_data = train_df.drop(columns=removable_columns).values
     if normalize:
-        train_data = train_df.drop(columns=[targetname, protectedname]).values
         train_data_mean = train_data.mean(axis=0)
         train_data_stdev = train_data.std(axis=0)
-    datasets = []
-    for df in [train_df, val_df]:
-        data = df.drop(columns=[targetname, protectedname]).values
-        if normalize:
-            data = (data - train_data_mean)/train_data_stdev
-        dataset = {"data": data,
-                   "label": df[targetname].factorize()[0], # discretize and grab labels
-                   "protected": df[protectedname].factorize()[0]}
-        if data_format == "tfdataset":
-            dataset = tf.data.Dataset.from_tensor_slices(dataset)
-        datasets += [dataset]
-    train_dataset, validation_dataset = datasets
-    return train_dataset, validation_dataset, datanames
-
-if __name__ == '__main__':
-    get_adult_dataset()
+        train_data = (train_data - train_data_mean)/train_data_stdev
+    train_dataset = {"data": train_data,
+                     "label": train_df.apply(objective, axis=1),
+                     "protected": train_df[protectedname].factorize()[0]}
+    val_data = val_df.drop(columns=removable_columns).values
+    if normalize:
+        val_data = (val_data - train_data_mean)/train_data_stdev
+    validation_dataset = {"data": val_data,
+                          "label": val_df.apply(objective, axis=1),
+                          "protected": val_df[protectedname].factorize()[0]}
+    return train_dataset, validation_dataset
