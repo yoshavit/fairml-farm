@@ -114,7 +114,7 @@ class SimpleNN(BaseClassifier):
         """
         yhat, yhat_logits, embedding = self.build_network(x, s)
         loss = self.build_loss(x, y, s, yhat_logits)
-        metrics, metric_names = self.build_metrics(x, y, s, yhat)
+        metrics, metric_names = self.build_metrics(x, y, s, yhat_logits)
         metrics = [loss] + metrics
         metric_names = ['loss'] + metric_names
         return loss, yhat, embedding, metrics, metric_names
@@ -125,10 +125,11 @@ class SimpleNN(BaseClassifier):
                                                     logits=yhat_logits))
         return logloss
 
-    def build_metrics(self, x, y, s, yhat):
+    def build_metrics(self, x, y, s, yhat_logits):
+        yhat = tf.sigmoid(yhat_logits)
         crossentropy = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
-                                                    logits=yhat_logits))
+                                                    logits=yhat))
         accuracy = tf.reduce_mean(tf.cast(
             tf.equal(tf.cast(tf.greater(yhat), tf.bool), y),
             tf.float32))
@@ -268,6 +269,7 @@ class ParityNN(SimpleNN):
         yhat = tf.sigmoid(yhat_logits)
         dpe = U.demographic_parity_discrimination(yhat, s)
         tppe, fppe = U.equalized_odds_discrimination(yhat, s, y)
+        dpe, tppe, fppe = U.zero_nans(dpe, tppe, fppe)
         overall_loss = crossentropy +\
                 self.config["dpe_scalar"]*dpe +\
                 self.config["tppe_scalar"]*tppe +\
