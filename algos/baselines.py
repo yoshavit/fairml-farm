@@ -47,15 +47,16 @@ class SimpleNN(BaseClassifier):
     def check_built(self):
         assert self.built, "Classifier not yet built; Call obj.build(...) before using"
 
-    def default_config(self):
+    def default_hparams(self):
         return {
             "layersizes": [100,00],
             "batchsize": 32,
             "with_dropout":True,
         }
 
-    def build(self, inputsize, config={}):
-        self.config = self.default_config().update(config)
+    def build(self, inputsize, hparams={}):
+        self.hparams = self.default_hparams()
+        self.hparams.update(hparams)
         # ========== Build training pipeline ===================
         self.inputsize=inputsize
         self.dataset = tf.data.Dataset()
@@ -67,7 +68,7 @@ class SimpleNN(BaseClassifier):
         dataset = tf.data.Dataset.from_tensor_slices(
             (self.dataset_X, self.dataset_Y, self.dataset_S
             )).shuffle(100, reshuffle_each_iteration=True).batch(
-                self.config["batchsize"])
+                self.hparams["batchsize"])
         self.training_iterator = dataset.make_initializable_iterator()
         x, y, s = self.training_iterator.get_next()
         loss, yhat, embedding, metrics, metric_names =\
@@ -79,7 +80,7 @@ class SimpleNN(BaseClassifier):
         opt_op = tf.train.AdamOptimizer().minimize(loss)
         self.global_step = tf.Variable(0, trainable=False)
         inc_global_step = tf.assign_add(self.global_step,
-                                        self.config["batchsize"])
+                                        self.hparams["batchsize"])
         with tf.control_dependencies([opt_op, inc_global_step]):
             self.train_op = U.ema_apply_wo_nans(ema, train_metrics)
         self.train_summaries = tf.summary.merge([
@@ -99,9 +100,9 @@ class SimpleNN(BaseClassifier):
 
         # ======= prediction pipeline ================
         self.prediction_x = tf.placeholder(tf.float32, shape=[None, inputsize],
-                                      name="prediction_X")
+                                      name="prediction_x")
         self.prediction_iterator = tf.data.Dataset.from_tensor_slices(
-            self.prediction_x).batch(self.config["batchsize"]).make_initializable_iterator()
+            self.prediction_x).batch(self.hparams["batchsize"]).make_initializable_iterator()
         x = self.prediction_iterator.get_next()
         self.prediction_yhat, _, self.prediction_embedding = self.build_network(
             x, reuse=True)
@@ -112,7 +113,7 @@ class SimpleNN(BaseClassifier):
     def build_training_pipeline(self, x, y, s):
         """Returns loss metrics, metric_names, TODO: more
         """
-        yhat, yhat_logits, embedding = self.build_network(x, s)
+        yhat, yhat_logits, embedding = self.build_network(x)
         loss = self.build_loss(x, y, s, yhat_logits)
         metrics, metric_names = self.build_metrics(x, y, s, yhat_logits)
         metrics = [loss] + metrics
@@ -131,7 +132,7 @@ class SimpleNN(BaseClassifier):
             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
                                                     logits=yhat))
         accuracy = tf.reduce_mean(tf.cast(
-            tf.equal(tf.cast(tf.greater(yhat), tf.bool), y),
+            tf.equal(tf.cast(yhat, tf.bool), y),
             tf.float32))
         dpe = U.demographic_parity_discrimination(yhat, s)
         tppe, fppe = U.equalized_odds_discrimination(yhat, s, y)
@@ -143,13 +144,13 @@ class SimpleNN(BaseClassifier):
                         "false_positive_parity_error"]
         return metrics, metric_names
 
-    def build_network(self, x, s, reuse=False):
+    def build_network(self, x, reuse=False):
         z = x
         with tf.variable_scope("classifier", reuse=reuse):
-            for i, l in enumerate(self.config["layersizes"]):
+            for i, l in enumerate(self.hparams["layersizes"]):
                 z = U.lrelu(U._linear(z, l, "fc{}".format(i)))
             embedding = z
-            if self.config["with_dropout"]:
+            if self.hparams["with_dropout"]:
                 z = tf.nn.dropout(z, self.keep_prob)
             yhat_logits = tf.squeeze(U._linear(z, 1, "output_logits"), axis=1)
             yhat = tf.sigmoid(yhat_logits)
@@ -254,13 +255,13 @@ class SimpleNN(BaseClassifier):
         return np.concatenate(yhatbatched, axis=0)
 
 class ParityNN(SimpleNN):
-    def default_config(self):
-        config = super().default_config().update({
+    def default_hparams(self):
+        hparams = super().default_hparams().update({
             "dpe_scalar": 1.0,
             "tppe_scalar": 0.0,
             "fppe_scalar": 0.0,
         })
-        return config
+        return hparams
 
     def build_loss(self, x, y, s, yhat_logits):
         crossentropy = tf.reduce_mean(
@@ -271,7 +272,7 @@ class ParityNN(SimpleNN):
         tppe, fppe = U.equalized_odds_discrimination(yhat, s, y)
         dpe, tppe, fppe = U.zero_nans(dpe, tppe, fppe)
         overall_loss = crossentropy +\
-                self.config["dpe_scalar"]*dpe +\
-                self.config["tppe_scalar"]*tppe +\
-                self.config["fppe_scalar"]*fppe
+                self.hparams["dpe_scalar"]*dpe +\
+                self.hparams["tppe_scalar"]*tppe +\
+                self.hparams["fppe_scalar"]*fppe
         return overall_loss

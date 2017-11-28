@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 import os
-from algos.baselines import SimpleNN
+from algos.baselines import SimpleNN, ParityNN
 from utils.data_utils import adult_dataset
 from utils.misc import increment_path
 import utils.tf_utils as U
@@ -25,9 +25,9 @@ from utils.vis_utils import plot_embeddings
     Later work: create "evaluate_hyperparams.py" to show tradeoffs with varying
         hparams
 """
-train = False
+train = True
 run_id = False
-run_id = "run--00"
+# run_id = "run--00"
 assert train or run_id, "if not training then specify directory"
 experiment_name = "test"
 
@@ -51,11 +51,14 @@ train_dataset, validation_dataset = adult_dataset(datadir=datadir)
     # objective=lambda s: int(s['capital-gain']>0))
 print("...dataset loaded.")
 inputsize = train_dataset["data"].shape[1]
-print("Launching Tensorboard")
+print("Launching Tensorboard.\nTo visualize, navigate to "
+      "http://0.0.0.0:6006/\nTo close Tensorboard,"
+      " press ctrl+C")
 tensorboard_process = U.launch_tensorboard(logdir)
 print("Initializing classifier...")
 layersizes = [100, 100]
-c = SimpleNN(inputsize, layersizes=layersizes)
+c = SimpleNN()
+c.build(inputsize, hparams={"layersizes":layersizes})
 if train:
     print("Training network...")
     c.train(train_dataset, logdir, epochs=50,
@@ -64,8 +67,6 @@ if train:
     assert savepath == tf.train.latest_checkpoint(logdir), "Paths unequal: {}, {}".format(savepath, tf.train.latest_checkpoint(logdir))
 savepath = tf.train.latest_checkpoint(logdir)
 c.load_model(savepath)
-print("To visualize, navigate to http://0.0.0.0:6006/\nTo close Tensorboard,"
-      " press ctrl+C")
 val_embeddings = c.compute_embedding(validation_dataset["data"])
 plot_embeddings(val_embeddings,
                 validation_dataset["label"],
