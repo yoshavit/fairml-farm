@@ -1,4 +1,3 @@
-import tensorflow as tf
 import pandas as pd
 import urllib.request
 from os import path

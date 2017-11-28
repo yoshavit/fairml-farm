@@ -16,6 +16,9 @@ def _linear(x, output_size, name):
 def lrelu(x, leak=0.2, name="lrelu"):
     return tf.maximum(x, leak*x, name=name)
 
+def zero_nans(*tensors):
+    return [tf.where(tf.is_nan(t), 0, t) for t in tensors]
+
 def ema_apply_wo_nans(ema, tensors):
     """Updates ExponentialMovingAverage (ema) with current values of tensors
     (similar to ema.apply(tensors) ), while ignoring tensors with NaN values.
