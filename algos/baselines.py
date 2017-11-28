@@ -126,13 +126,17 @@ class SimpleNN(BaseClassifier):
         return logloss
 
     def build_metrics(self, x, y, s, yhat):
+        crossentropy = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
+                                                    logits=yhat_logits))
         accuracy = tf.reduce_mean(tf.cast(
             tf.equal(tf.cast(tf.greater(yhat), tf.bool), y),
             tf.float32))
         dpe = U.demographic_parity_discrimination(yhat, s)
         tppe, fppe = U.equalized_odds_discrimination(yhat, s, y)
-        metrics = [accuracy, dpe, tppe, fppe]
-        metric_names = ["accuracy",
+        metrics = [crossentropy, accuracy, dpe, tppe, fppe]
+        metric_names = ["crossentropy",
+                        "accuracy",
                         "demographic_parity_error",
                         "true_positive_parity_error",
                         "false_positive_parity_error"]
@@ -248,3 +252,24 @@ class SimpleNN(BaseClassifier):
                 break
         return np.concatenate(yhatbatched, axis=0)
 
+class ParityNN(SimpleNN):
+    def default_config(self):
+        config = super().default_config().update({
+            "dpe_scalar": 1.0,
+            "tppe_scalar": 0.0,
+            "fppe_scalar": 0.0,
+        })
+        return config
+
+    def build_loss(self, x, y, s, yhat_logits):
+        crossentropy = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
+                                                    logits=yhat_logits))
+        yhat = tf.sigmoid(yhat_logits)
+        dpe = U.demographic_parity_discrimination(yhat, s)
+        tppe, fppe = U.equalized_odds_discrimination(yhat, s, y)
+        overall_loss = crossentropy +\
+                self.config["dpe_scalar"]*dpe +\
+                self.config["tppe_scalar"]*tppe +\
+                self.config["fppe_scalar"]*fppe
+        return overall_loss
