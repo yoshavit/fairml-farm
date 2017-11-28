@@ -39,8 +39,7 @@ class BaseClassifier(ABC):
         raise NotImplementedError
 
 class SimpleNN(BaseClassifier):
-    def __init__(self, sess=None, layersizes=[100, 100],
-                 batchsize=32, with_dropout=True):
+    def __init__(self, sess=None):
         if sess is None:
             self.sess = tf.Session()
         self.built = False
@@ -48,11 +47,17 @@ class SimpleNN(BaseClassifier):
     def check_built(self):
         assert self.built, "Classifier not yet built; Call obj.build(...) before using"
 
-    def build(self, inputsize, layersizes=[100,100], batchsize=32,
-              with_dropout=True):
+    def default_config(self):
+        return {
+            "layersizes": [100,00],
+            "batchsize": 32,
+            "with_dropout":True,
+        }
+
+    def build(self, inputsize, config={}):
+        self.config = self.default_config().update(config)
         # ========== Build training pipeline ===================
         self.inputsize=inputsize
-        self.batchsize=batchsize
         self.dataset = tf.data.Dataset()
         self.dataset_X = tf.placeholder(dtype=tf.float32, shape=[None, self.inputsize],
                                       name="dataset_X")
@@ -61,18 +66,20 @@ class SimpleNN(BaseClassifier):
         self.keep_prob = tf.placeholder(dtype=tf.float32)
         dataset = tf.data.Dataset.from_tensor_slices(
             (self.dataset_X, self.dataset_Y, self.dataset_S
-            )).shuffle(100, reshuffle_each_iteration=True).batch(self.batchsize)
+            )).shuffle(100, reshuffle_each_iteration=True).batch(
+                self.config["batchsize"])
         self.training_iterator = dataset.make_initializable_iterator()
-        X, Y, S = self.training_iterator.get_next()
-        loss, Yhat, embedding, metrics, metric_names =\
-                self.build_training_pipeline(X, Y, S, layersizes, with_dropout)
+        x, y, s = self.training_iterator.get_next()
+        loss, yhat, embedding, metrics, metric_names =\
+                self.build_training_pipeline(x, y, s)
         # Make copies of the metrics, and store different avgs for the train
         # and validation copies
         train_metrics = [tf.identity(m) for m in metrics]
         ema = tf.train.ExponentialMovingAverage(0.99)
         opt_op = tf.train.AdamOptimizer().minimize(loss)
         self.global_step = tf.Variable(0, trainable=False)
-        inc_global_step = tf.assign_add(self.global_step, batchsize)
+        inc_global_step = tf.assign_add(self.global_step,
+                                        self.config["batchsize"])
         with tf.control_dependencies([opt_op, inc_global_step]):
             self.train_op = U.ema_apply_wo_nans(ema, train_metrics)
         self.train_summaries = tf.summary.merge([
@@ -91,40 +98,39 @@ class SimpleNN(BaseClassifier):
             for metric_name, metric in zip(metric_names, val_metrics)])
 
         # ======= prediction pipeline ================
-        self.prediction_X = tf.placeholder(tf.float32, shape=[None, inputsize],
+        self.prediction_x = tf.placeholder(tf.float32, shape=[None, inputsize],
                                       name="prediction_X")
         self.prediction_iterator = tf.data.Dataset.from_tensor_slices(
-            self.prediction_X).batch(batchsize).make_initializable_iterator()
-        X = self.prediction_iterator.get_next()
-        self.prediction_Yhat, _, self.prediction_embedding = self.build_network(
-            X, layersizes, with_dropout, reuse=True)
+            self.prediction_x).batch(self.config["batchsize"]).make_initializable_iterator()
+        x = self.prediction_iterator.get_next()
+        self.prediction_yhat, _, self.prediction_embedding = self.build_network(
+            x, reuse=True)
         self.saver = tf.train.Saver()
         self.sess.run(tf.global_variables_initializer())
         self.built = True
 
-    def build_training_pipeline(self, X, Y, S, layersizes, with_dropout):
-        """Returns loss metrics, metric_names,
+    def build_training_pipeline(self, x, y, s):
+        """Returns loss metrics, metric_names, TODO: more
         """
-        Yhat, Yhat_logits, embedding = self.build_network(X, S, layersizes,
-                                                          with_dropout)
-        loss = self.build_loss(X, Y, S, Yhat_logits)
-        metrics, metric_names = self.build_metrics(X, Y, S, Yhat_logits)
+        yhat, yhat_logits, embedding = self.build_network(x, s)
+        loss = self.build_loss(x, y, s, yhat_logits)
+        metrics, metric_names = self.build_metrics(x, y, s, yhat)
         metrics = [loss] + metrics
         metric_names = ['loss'] + metric_names
-        return loss, Yhat, embedding, metrics, metric_names
+        return loss, yhat, embedding, metrics, metric_names
 
-    def build_loss(self, X, Y, S, Yhat_logits):
+    def build_loss(self, x, y, s, yhat_logits):
         logloss = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(Y, tf.float32),
-                                                    logits=Yhat_logits))
+            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
+                                                    logits=yhat_logits))
         return logloss
 
-    def build_metrics(self, X, Y, S, Yhat_logits):
+    def build_metrics(self, x, y, s, yhat):
         accuracy = tf.reduce_mean(tf.cast(
-            tf.equal(tf.cast(tf.greater(Yhat), tf.bool), Y),
+            tf.equal(tf.cast(tf.greater(yhat), tf.bool), y),
             tf.float32))
-        dpe = U.demographic_parity_discrimination(self.training_Yhat, S)
-        tppe, fppe = U.equalized_odds_discrimination(self.training_Yhat, S, Y)
+        dpe = U.demographic_parity_discrimination(yhat, s)
+        tppe, fppe = U.equalized_odds_discrimination(yhat, s, y)
         metrics = [accuracy, dpe, tppe, fppe]
         metric_names = ["accuracy",
                         "demographic_parity_error",
@@ -132,13 +138,13 @@ class SimpleNN(BaseClassifier):
                         "false_positive_parity_error"]
         return metrics, metric_names
 
-    def build_network(self, X, S, layersizes, with_dropout, reuse=False):
-        z = X
+    def build_network(self, x, s, reuse=False):
+        z = x
         with tf.variable_scope("classifier", reuse=reuse):
-            for i, l in enumerate(layersizes):
+            for i, l in enumerate(self.config["layersizes"]):
                 z = U.lrelu(U._linear(z, l, "fc{}".format(i)))
             embedding = z
-            if with_dropout:
+            if self.config["with_dropout"]:
                 z = tf.nn.dropout(z, self.keep_prob)
             yhat_logits = tf.squeeze(U._linear(z, 1, "output_logits"), axis=1)
             yhat = tf.sigmoid(yhat_logits)
@@ -200,7 +206,7 @@ class SimpleNN(BaseClassifier):
         filename = self.saver.save(self.sess, filepath)
         return filename
 
-    def predict(self, X):
+    def predict(self, x):
         """Compute the classifier output
         Args:
             X - n x d array of datapoints
@@ -210,17 +216,17 @@ class SimpleNN(BaseClassifier):
         self.check_built()
         yhatbatched = []
         self.sess.run(self.prediction_iterator.initializer,
-                      feed_dict={self.prediction_X: X})
+                      feed_dict={self.prediction_x: x})
         while True:
             try:
-                yhatbatch = self.sess.run(self.prediction_Yhat,
+                yhatbatch = self.sess.run(self.prediction_yhat,
                                           feed_dict={self.keep_prob:1.0})
                 yhatbatched.append(yhatbatch)
             except tf.errors.OutOfRangeError:
                 break
         return np.concatenate(yhatbatched, axis=0)
 
-    def compute_embedding(self, X):
+    def compute_embedding(self, x):
         """Compute the low-dimensional embedding (learned by the classifier)
         of a set of datapoints. In this case, that is the last layer of the
         network before the output.
@@ -232,7 +238,7 @@ class SimpleNN(BaseClassifier):
         self.check_built()
         yhatbatched = []
         self.sess.run(self.prediction_iterator.initializer,
-                      feed_dict={self.prediction_X: X})
+                      feed_dict={self.prediction_x: x})
         while True:
             try:
                 yhatbatch = self.sess.run(self.prediction_embedding,
