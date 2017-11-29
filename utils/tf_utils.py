@@ -17,7 +17,7 @@ def lrelu(x, leak=0.2, name="lrelu"):
     return tf.maximum(x, leak*x, name=name)
 
 def zero_nans(*tensors):
-    return [tf.where(tf.is_nan(t), 0, t) for t in tensors]
+    return [tf.where(tf.is_nan(t), 0.0, t) for t in tensors]
 
 def ema_apply_wo_nans(ema, tensors):
     """Updates ExponentialMovingAverage (ema) with current values of tensors
@@ -46,42 +46,42 @@ def launch_tensorboard(logdir, tensorboard_path=None):
 
 # ======= Bias-specific Ops =========================
 
-def demographic_parity_discrimination(Yhat, S):
-    """Computes the difference in the mean prediction between protected
+def demographic_parity_discrimination(yhat, s):
+    """Computes the squared difference in the mean prediction between protected
     classes. (https://www.cs.toronto.edu/~toni/Papers/icml-final.pdf Eq. 14)
     Args:
-        Yhat - n x 1 tensor of predictions
-        S - n x 1 tf.bool tensor marking whether the individual is from the
+        yhat - n x 1 tensor of predictions
+        a - n x 1 tf.bool tensor marking whether the individual is from the
             protected class
     Returns:
         A scalar tensor of the difference in mean prediction between classes.
     """
-    Yhat_s0, Yhat_s1 = tf.dynamic_partition(Yhat, tf.cast(S, tf.int32), 2)
-    disc = tf.abs(tf.reduce_mean(Yhat_s0) - tf.reduce_mean(Yhat_s1))
+    yhat_s0, yhat_s1 = tf.dynamic_partition(yhat, tf.cast(s, tf.int32), 2)
+    disc = tf.square(tf.reduce_mean(yhat_s0) - tf.reduce_mean(yhat_s1))
     return disc
 
-def equalized_odds_discrimination(Yhat, S, Y):
-    """Computes the difference in the mean prediction between protected classes,
+def equalized_odds_discrimination(yhat, a, y):
+    """Computes the squared difference in the mean prediction between protected classes,
     conditioned on the true outcome. Equivalent to the deviation from
     'Equalized Odds' defined in https://arxiv.org/pdf/1610.02413.pdf
     Args:
-        Yhat - n x 1 tensor of predictions
-        S - n x 1 tf.bool tensor marking whether the individual is from the
+        yhat - n x 1 tensor of predictions
+        a - n x 1 tf.bool tensor marking whether the individual is from the
             protected class
-        Y - n x 1 tf.bool tensor marking the individual's true outcome
+        y - n x 1 tf.bool tensor marking the individual's true outcome
     Returns:
-        true_positive_parity_error - a scalar tensor of the mean deviation for
+        true_positive_parity_error - a scalar tensor of the mean squared deviation for
             positive outcomes
-        false_positive_parity_error - a scalar tensor of the mean deviation for
+        false_positive_parity_error - a scalar tensor of the mean squared deviation for
             negative outcomes
     """
-    partitions = tf.cast(Y, tf.int32)*2 + tf.cast(S, tf.int32)
-    Yhat_y0_s0, Yhat_y0_s1, Yhat_y1_s0, Yhat_y1_s1 = tf.dynamic_partition(
-        Yhat, partitions, 4)
-    true_positive_parity_error = tf.abs(tf.reduce_mean(Yhat_y0_s0) -
-                                        tf.reduce_mean(Yhat_y0_s1))
-    false_positive_parity_error = tf.abs(tf.reduce_mean(Yhat_y1_s0) -
-                                        tf.reduce_mean(Yhat_y1_s1))
+    partitions = tf.cast(y, tf.int32)*2 + tf.cast(a, tf.int32)
+    yhat_y0_a0, yhat_y0_a1, yhat_y1_a0, yhat_y1_a1 = tf.dynamic_partition(
+        yhat, partitions, 4)
+    true_positive_parity_error = tf.square(tf.reduce_mean(yhat_y0_a0) -
+                                        tf.reduce_mean(yhat_y0_a1))
+    false_positive_parity_error = tf.square(tf.reduce_mean(yhat_y1_a0) -
+                                        tf.reduce_mean(yhat_y1_a1))
     return true_positive_parity_error, false_positive_parity_error
 
 

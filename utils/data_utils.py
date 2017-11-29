@@ -53,7 +53,8 @@ def fetch_adult_dataset(datadir=None):
 def adult_dataset(datadir=None,
                   normalize=False,
                   removable_columns=['sex', 'income>50k'],
-                  objective=lambda s: s['income>50k'] == " <=50K."
+                  protectedfn=lambda s: "Male" in s['sex'],
+                  labelfn=lambda s: ">50K" in s['income>50k']
                  ):
     """Fetches and processes the Adult dataset into data, protected, and label
     groupings.
@@ -65,9 +66,14 @@ def adult_dataset(datadir=None,
             training set) applied to them. Default False.
         removable_columns - columns from the original dataset to be removed
             during execution. Default ['sex', 'income>50k']
-        objective -  function, computed on a row in the adult dataset, for
+        protectedfn -  function, computed on a row in the adult dataset, for
+            extracting a protected attribute from the dataset.
+            Default: lambda s: "Male" in s['sex'],
+        labelfn -  function, computed on a row in the adult dataset, for
             extracting a label from the dataset.
-            Default: lambda s: s['income>50k']
+            Default: lambda s: ">50K" in s['income>50k']
+            (WARNING: due to formatting of the original data, categories for
+            'income>50k' are different for the train and validation sets)
     Returns:
         train_dataset - a dictionary of three numpy arrays, containing fields:
             "data" - the data to be trained on
@@ -76,7 +82,6 @@ def adult_dataset(datadir=None,
         validation_dataset - same as train_dataset, but for the validation
             examples
     """
-    protectedname = 'sex'
     train_df, val_df = fetch_adult_dataset(datadir)
     train_data = train_df.drop(columns=removable_columns).values
     if normalize:
@@ -84,12 +89,13 @@ def adult_dataset(datadir=None,
         train_data_stdev = train_data.std(axis=0)
         train_data = (train_data - train_data_mean)/train_data_stdev
     train_dataset = {"data": train_data,
-                     "label": train_df.apply(objective, axis=1),
-                     "protected": train_df[protectedname].factorize()[0]}
+                     "label": train_df.apply(labelfn, axis=1),
+                     "protected": train_df.apply(protectedfn, axis=1)}
     val_data = val_df.drop(columns=removable_columns).values
     if normalize:
         val_data = (val_data - train_data_mean)/train_data_stdev
     validation_dataset = {"data": val_data,
-                          "label": val_df.apply(objective, axis=1),
-                          "protected": val_df[protectedname].factorize()[0]}
+                          "label": val_df.apply(labelfn, axis=1),
+                          "protected": val_df.apply(protectedfn, axis=1)
+                         }
     return train_dataset, validation_dataset

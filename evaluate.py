@@ -72,7 +72,7 @@ plot_embeddings(val_embeddings,
                 validation_dataset["label"],
                 validation_dataset["protected"],
                 plot3d=True,
-                subsample=200,
-                label_names=["income>50k", "income<=50k"],
+                subsample=500,
+                label_names=["income<=50k", "income>50k"],
                 protected_names=["female", "male"])
 tensorboard_process.join()

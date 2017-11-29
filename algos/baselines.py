@@ -63,25 +63,24 @@ class SimpleNN(BaseClassifier):
         self.dataset_X = tf.placeholder(dtype=tf.float32, shape=[None, self.inputsize],
                                       name="dataset_X")
         self.dataset_Y = tf.placeholder(tf.bool, shape=[None], name="dataset_Y")
-        self.dataset_S = tf.placeholder(tf.bool, shape=[None], name="dataset_S")
+        self.dataset_A = tf.placeholder(tf.bool, shape=[None], name="dataset_A")
         self.keep_prob = tf.placeholder(dtype=tf.float32)
         dataset = tf.data.Dataset.from_tensor_slices(
-            (self.dataset_X, self.dataset_Y, self.dataset_S
+            (self.dataset_X, self.dataset_Y, self.dataset_A
             )).shuffle(100, reshuffle_each_iteration=True).batch(
                 self.hparams["batchsize"])
         self.training_iterator = dataset.make_initializable_iterator()
-        x, y, s = self.training_iterator.get_next()
-        loss, yhat, embedding, metrics, metric_names =\
-                self.build_training_pipeline(x, y, s)
+        x, y, a = self.training_iterator.get_next()
+        opt_ops, yhat, embedding, metrics, metric_names =\
+                self.build_training_pipeline(x, y, a)
         # Make copies of the metrics, and store different avgs for the train
         # and validation copies
         train_metrics = [tf.identity(m) for m in metrics]
         ema = tf.train.ExponentialMovingAverage(0.99)
-        opt_op = tf.train.AdamOptimizer().minimize(loss)
         self.global_step = tf.Variable(0, trainable=False)
         inc_global_step = tf.assign_add(self.global_step,
                                         self.hparams["batchsize"])
-        with tf.control_dependencies([opt_op, inc_global_step]):
+        with tf.control_dependencies(opt_ops + [inc_global_step]):
             self.train_op = U.ema_apply_wo_nans(ema, train_metrics)
         self.train_summaries = tf.summary.merge([
             tf.summary.scalar(metric_name, ema.average(metric), family="train")
@@ -110,32 +109,33 @@ class SimpleNN(BaseClassifier):
         self.sess.run(tf.global_variables_initializer())
         self.built = True
 
-    def build_training_pipeline(self, x, y, s):
+    def build_training_pipeline(self, x, y, a):
         """Returns loss metrics, metric_names, TODO: more
         """
         yhat, yhat_logits, embedding = self.build_network(x)
-        loss = self.build_loss(x, y, s, yhat_logits)
-        metrics, metric_names = self.build_metrics(x, y, s, yhat_logits)
+        loss = self.build_loss(x, y, a, yhat_logits)
+        metrics, metric_names = self.build_metrics(x, y, a, yhat_logits)
         metrics = [loss] + metrics
-        metric_names = ['loss'] + metric_names
-        return loss, yhat, embedding, metrics, metric_names
+        metric_names = ['overall_loss'] + metric_names
+        opt_ops = [tf.train.AdamOptimizer().minimize(loss)]
+        return opt_ops, yhat, embedding, metrics, metric_names
 
-    def build_loss(self, x, y, s, yhat_logits):
-        logloss = tf.reduce_mean(
+    def build_loss(self, x, y, a, yhat_logits):
+        crossentropy = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
                                                     logits=yhat_logits))
-        return logloss
+        return crossentropy
 
-    def build_metrics(self, x, y, s, yhat_logits):
+    def build_metrics(self, x, y, a, yhat_logits):
         yhat = tf.sigmoid(yhat_logits)
         crossentropy = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
-                                                    logits=yhat))
+                                                    logits=yhat_logits))
         accuracy = tf.reduce_mean(tf.cast(
-            tf.equal(tf.cast(yhat, tf.bool), y),
+            tf.equal(tf.greater(yhat_logits, 0.0), y),
             tf.float32))
-        dpe = U.demographic_parity_discrimination(yhat, s)
-        tppe, fppe = U.equalized_odds_discrimination(yhat, s, y)
+        dpe = U.demographic_parity_discrimination(yhat, a)
+        tppe, fppe = U.equalized_odds_discrimination(yhat, a, y)
         metrics = [crossentropy, accuracy, dpe, tppe, fppe]
         metric_names = ["crossentropy",
                         "accuracy",
@@ -166,7 +166,7 @@ class SimpleNN(BaseClassifier):
                           feed_dict={
                               self.dataset_X: training_dataset["data"],
                               self.dataset_Y: training_dataset["label"],
-                              self.dataset_S: training_dataset["protected"]})
+                              self.dataset_A: training_dataset["protected"]})
             print("Epoch {}...".format(epoch), end=" ")
             starttime = time.clock()
             steps = 0
@@ -187,7 +187,7 @@ class SimpleNN(BaseClassifier):
                               feed_dict={
                                   self.dataset_X: validation_dataset["data"],
                                   self.dataset_Y: validation_dataset["label"],
-                                  self.dataset_S: validation_dataset["protected"]})
+                                  self.dataset_A: validation_dataset["protected"]})
                 steps = 0
                 if validation_batches is None: validation_batches = float("inf")
                 self.sess.run(self.restart_validation_op)
@@ -256,23 +256,45 @@ class SimpleNN(BaseClassifier):
 
 class ParityNN(SimpleNN):
     def default_hparams(self):
-        hparams = super().default_hparams().update({
+        hparams = super().default_hparams()
+        hparams.update({
             "dpe_scalar": 1.0,
             "tppe_scalar": 0.0,
             "fppe_scalar": 0.0,
         })
         return hparams
 
-    def build_loss(self, x, y, s, yhat_logits):
+    def build_loss(self, x, y, a, yhat_logits):
         crossentropy = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
                                                     logits=yhat_logits))
         yhat = tf.sigmoid(yhat_logits)
-        dpe = U.demographic_parity_discrimination(yhat, s)
-        tppe, fppe = U.equalized_odds_discrimination(yhat, s, y)
+        dpe = U.demographic_parity_discrimination(yhat, a)
+        tppe, fppe = U.equalized_odds_discrimination(yhat, a, y)
         dpe, tppe, fppe = U.zero_nans(dpe, tppe, fppe)
         overall_loss = crossentropy +\
                 self.hparams["dpe_scalar"]*dpe +\
                 self.hparams["tppe_scalar"]*tppe +\
                 self.hparams["fppe_scalar"]*fppe
         return overall_loss
+
+class AdversariallyCensoredNN(SimpleNN):
+    def default_hparams(self):
+        hparams = super().default_hparams()
+        hparams.update({
+            "adversary_layers": [],
+            "adv_loss_scalar": 1.0,
+        })
+        return hparams
+
+    def build_training_pipeline(self, x, y, s):
+        """Returns loss metrics, metric_names, TODO: more
+        """
+        yhat, yhat_logits, embedding = self.build_network(x)
+        shat, shat_logits = self.build_adversary(x, y)
+        loss = self.build_loss(x, y, s, yhat_logits)
+        metrics, metric_names = self.build_metrics(x, y, s, yhat_logits)
+        metrics = [loss] + metrics
+        metric_names = ['overall_loss'] + metric_names
+        opt_ops = [tf.train.AdamOptimizer().minimize(loss)]
+        return opt_ops, yhat, embedding, metrics, metric_names
