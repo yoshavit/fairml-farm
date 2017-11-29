@@ -113,20 +113,20 @@ class SimpleNN(BaseClassifier):
         """Returns loss metrics, metric_names, TODO: more
         """
         yhat, yhat_logits, embedding = self.build_network(x)
-        loss = self.build_loss(x, y, a, yhat_logits)
-        metrics, metric_names = self.build_metrics(x, y, a, yhat_logits)
+        loss = self.build_loss(y, a, yhat_logits)
+        metrics, metric_names = self.build_metrics(y, a, yhat_logits)
         metrics = [loss] + metrics
         metric_names = ['overall_loss'] + metric_names
         opt_ops = [tf.train.AdamOptimizer().minimize(loss)]
         return opt_ops, yhat, embedding, metrics, metric_names
 
-    def build_loss(self, x, y, a, yhat_logits):
+    def build_loss(self, y, a, yhat_logits):
         crossentropy = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
                                                     logits=yhat_logits))
         return crossentropy
 
-    def build_metrics(self, x, y, a, yhat_logits):
+    def build_metrics(self, y, a, yhat_logits):
         yhat = tf.sigmoid(yhat_logits)
         crossentropy = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
@@ -145,14 +145,14 @@ class SimpleNN(BaseClassifier):
         return metrics, metric_names
 
     def build_network(self, x, reuse=False):
-        z = x
+        r = x
         with tf.variable_scope("classifier", reuse=reuse):
             for i, l in enumerate(self.hparams["layersizes"]):
-                z = U.lrelu(U._linear(z, l, "fc{}".format(i)))
-            embedding = z
+                r = U.lrelu(U._linear(r, l, "fc{}".format(i)))
+            embedding = r
             if self.hparams["with_dropout"]:
-                z = tf.nn.dropout(z, self.keep_prob)
-            yhat_logits = tf.squeeze(U._linear(z, 1, "output_logits"), axis=1)
+                r = tf.nn.dropout(r, self.keep_prob)
+            yhat_logits = tf.squeeze(U._linear(r, 1, "output_logits"), axis=1)
             yhat = tf.sigmoid(yhat_logits)
             return yhat, yhat_logits, embedding
 
@@ -264,7 +264,7 @@ class ParityNN(SimpleNN):
         })
         return hparams
 
-    def build_loss(self, x, y, a, yhat_logits):
+    def build_loss(self, y, a, yhat_logits):
         crossentropy = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
                                                     logits=yhat_logits))
@@ -282,19 +282,55 @@ class AdversariallyCensoredNN(SimpleNN):
     def default_hparams(self):
         hparams = super().default_hparams()
         hparams.update({
-            "adversary_layers": [],
+            "adv_layersizes": [],
             "adv_loss_scalar": 1.0,
+            "adv_sees_label": False,
         })
         return hparams
 
-    def build_training_pipeline(self, x, y, s):
+    def build_training_pipeline(self, x, y, a):
         """Returns loss metrics, metric_names, TODO: more
         """
-        yhat, yhat_logits, embedding = self.build_network(x)
-        shat, shat_logits = self.build_adversary(x, y)
-        loss = self.build_loss(x, y, s, yhat_logits)
-        metrics, metric_names = self.build_metrics(x, y, s, yhat_logits)
+        yhat, yhat_logits, z = self.build_network(x)
+        ahat, ahat_logits = self.build_adversary(z, y)
+        loss = self.build_loss(y, a, yhat_logits, ahat_logits)
+        metrics, metric_names = self.build_metrics(x, y, a, yhat_logits)
         metrics = [loss] + metrics
         metric_names = ['overall_loss'] + metric_names
         opt_ops = [tf.train.AdamOptimizer().minimize(loss)]
-        return opt_ops, yhat, embedding, metrics, metric_names
+        return opt_ops, yhat, z, metrics, metric_names
+
+    def build_adversary(self, z, y, reuse=False):
+        r = z
+        with tf.variable_scope("adversary", reuse=reuse):
+            if self.hparams["adv_sees_label"]:
+                r = tf.concat([r, tf.expand_dims(y, axis=1)], axis=1)
+            for i, l in enumerate(self.hparams["adv_layersizes"]):
+                r = U.lrelu(U._linear(r, l, "fc{}".format(i)))
+            ahat_logits = tf.squeeze(U._linear(r, 1, "output_logits"), axis=1)
+            ahat = tf.sigmoid(ahat_logits)
+        return ahat, ahat_logits
+
+    def build_loss(self, y, a, yhat_logits, ahat_logits):
+        primary_loss = tf.reduce_mean(
+            tf.sigmoid_cross_entropy_with_logits(labels=y,
+                                                 logits=yhat_logits))
+        adv_loss = tf.reduce_mean(
+            tf.sigmoid_cross_entropy_with_logits(labels=a,
+                                                 logits=ahat_logits))
+        overall_loss = primary_loss - self.hparams["adv_loss_scalar"]*adv_loss
+        return overall_loss
+
+    def build_metrics(self, y, a, yhat_logits, ahat_logits):
+        metrics, metric_names = super().build_metrics(y, a, yhat_logits)
+        adv_crossentropy = tf.reduce_mean(
+            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(a, tf.float32),
+                                                    logits=ahat_logits))
+        adv_accuracy = tf.reduce_mean(tf.cast(
+            tf.equal(tf.greater(ahat_logits, 0.0), a),
+            tf.float32))
+        metrics += [adv_crossentropy,
+                    adv_accuracy]
+        metric_names += ["adv_crossentropy",
+                         "adv_accuracy"]
+        return metrics, metric_names
