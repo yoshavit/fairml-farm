@@ -89,13 +89,16 @@ def adult_dataset(datadir=None,
         train_data_stdev = train_data.std(axis=0)
         train_data = (train_data - train_data_mean)/train_data_stdev
     train_dataset = {"data": train_data,
-                     "label": train_df.apply(labelfn, axis=1),
-                     "protected": train_df.apply(protectedfn, axis=1)}
+                     "label": train_df.apply(labelfn, axis=1).as_matrix(),
+                     "protected": train_df.apply(protectedfn,
+                                                 axis=1).as_matrix()
+                    }
     val_data = val_df.drop(columns=removable_columns).values
     if normalize:
         val_data = (val_data - train_data_mean)/train_data_stdev
     validation_dataset = {"data": val_data,
-                          "label": val_df.apply(labelfn, axis=1),
-                          "protected": val_df.apply(protectedfn, axis=1)
+                          "label": val_df.apply(labelfn, axis=1).as_matrix(),
+                          "protected": val_df.apply(protectedfn,
+                                                    axis=1).as_matrix()
                          }
     return train_dataset, validation_dataset

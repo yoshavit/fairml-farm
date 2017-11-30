@@ -8,6 +8,16 @@ import utils.tf_utils as U
 class BaseClassifier(ABC):
     """Abstract class for binary classifiers.
     """
+    @property
+    @abstractmethod
+    def name():
+        pass
+    @abstractmethod
+    def build(hparams={}):
+        """ Builds model components to the point where prediction/training can
+        be done.
+        Useful for routines requiring inherited/overwritten methods.
+        """
     @abstractmethod
     def load_model(filename):
         """ Loads the model parameters from file filename
@@ -39,6 +49,7 @@ class BaseClassifier(ABC):
         raise NotImplementedError
 
 class SimpleNN(BaseClassifier):
+    name = "simplenn"
     def __init__(self, sess=None):
         if sess is None:
             self.sess = tf.Session()
@@ -49,18 +60,20 @@ class SimpleNN(BaseClassifier):
 
     def default_hparams(self):
         return {
+            "inputsize": 105, # for Adult dataset
+            "learning_rate": 3e-4,
             "layersizes": [100,00],
             "batchsize": 32,
             "with_dropout":True,
         }
 
-    def build(self, inputsize, hparams={}):
+    def build(self, hparams={}):
         self.hparams = self.default_hparams()
         self.hparams.update(hparams)
         # ========== Build training pipeline ===================
-        self.inputsize=inputsize
         self.dataset = tf.data.Dataset()
-        self.dataset_X = tf.placeholder(dtype=tf.float32, shape=[None, self.inputsize],
+        self.dataset_X = tf.placeholder(dtype=tf.float32, shape=[None,
+                                                                 self.hparams["inputsize"]],
                                       name="dataset_X")
         self.dataset_Y = tf.placeholder(tf.bool, shape=[None], name="dataset_Y")
         self.dataset_A = tf.placeholder(tf.bool, shape=[None], name="dataset_A")
@@ -98,7 +111,8 @@ class SimpleNN(BaseClassifier):
             for metric_name, metric in zip(metric_names, val_metrics)])
 
         # ======= prediction pipeline ================
-        self.prediction_x = tf.placeholder(tf.float32, shape=[None, inputsize],
+        self.prediction_x = tf.placeholder(tf.float32, shape=[None,
+                                                              self.hparams["inputsize"]],
                                       name="prediction_x")
         self.prediction_iterator = tf.data.Dataset.from_tensor_slices(
             self.prediction_x).batch(self.hparams["batchsize"]).make_initializable_iterator()
@@ -117,7 +131,9 @@ class SimpleNN(BaseClassifier):
         metrics, metric_names = self.build_metrics(y, a, yhat_logits)
         metrics = [loss] + metrics
         metric_names = ['overall_loss'] + metric_names
-        opt_ops = [tf.train.AdamOptimizer().minimize(loss)]
+        opt_ops = [
+            tf.train.AdamOptimizer(self.hparams["learning_rate"]).minimize(loss)
+        ]
         return opt_ops, yhat, embedding, metrics, metric_names
 
     def build_loss(self, y, a, yhat_logits):
@@ -136,12 +152,14 @@ class SimpleNN(BaseClassifier):
             tf.float32))
         dpe = U.demographic_parity_discrimination(yhat, a)
         tppe, fppe = U.equalized_odds_discrimination(yhat, a, y)
-        metrics = [crossentropy, accuracy, dpe, tppe, fppe]
+        cpe = U.calibration_parity_loss(yhat, a, y, yhat_logits)
+        metrics = [crossentropy, accuracy, dpe, tppe, fppe, cpe]
         metric_names = ["crossentropy",
                         "accuracy",
                         "demographic_parity_error",
                         "true_positive_parity_error",
-                        "false_positive_parity_error"]
+                        "false_positive_parity_error",
+                        "calibration_parity_error"]
         return metrics, metric_names
 
     def build_network(self, x, reuse=False):
@@ -255,6 +273,7 @@ class SimpleNN(BaseClassifier):
         return np.concatenate(yhatbatched, axis=0)
 
 class ParityNN(SimpleNN):
+    name = "paritynn"
     def default_hparams(self):
         hparams = super().default_hparams()
         hparams.update({
@@ -279,9 +298,11 @@ class ParityNN(SimpleNN):
         return overall_loss
 
 class AdversariallyCensoredNN(SimpleNN):
+    name = "adversariallycensorednn"
     def default_hparams(self):
         hparams = super().default_hparams()
         hparams.update({
+            "adv_learning_rate": 3e-4,
             "adv_layersizes": [],
             "adv_loss_scalar": 1.0,
             "adv_sees_label": False,
@@ -294,17 +315,25 @@ class AdversariallyCensoredNN(SimpleNN):
         yhat, yhat_logits, z = self.build_network(x)
         ahat, ahat_logits = self.build_adversary(z, y)
         loss = self.build_loss(y, a, yhat_logits, ahat_logits)
-        metrics, metric_names = self.build_metrics(x, y, a, yhat_logits)
+        metrics, metric_names = self.build_metrics(y, a, yhat_logits,
+                                                   ahat_logits)
         metrics = [loss] + metrics
         metric_names = ['overall_loss'] + metric_names
-        opt_ops = [tf.train.AdamOptimizer().minimize(loss)]
+        nrml_params = [v for v in tf.global_variables() if "adversary" not in v.name]
+        adv_params = [v for v in tf.global_variables() if "adversary" in v.name]
+        nrml_opt_op = tf.train.AdamOptimizer(self.hparams["learning_rate"]
+                                            ).minimize(loss, var_list=nrml_params)
+        adv_opt_op = tf.train.AdamOptimizer(self.hparams["adv_learning_rate"]
+                                           ).minimize(-1*loss, var_list=adv_params)
+        opt_ops = [nrml_opt_op, adv_opt_op]
         return opt_ops, yhat, z, metrics, metric_names
 
     def build_adversary(self, z, y, reuse=False):
         r = z
         with tf.variable_scope("adversary", reuse=reuse):
             if self.hparams["adv_sees_label"]:
-                r = tf.concat([r, tf.expand_dims(y, axis=1)], axis=1)
+                r = tf.concat([r, tf.expand_dims(tf.cast(y, tf.float32), axis=1)],
+                              axis=1)
             for i, l in enumerate(self.hparams["adv_layersizes"]):
                 r = U.lrelu(U._linear(r, l, "fc{}".format(i)))
             ahat_logits = tf.squeeze(U._linear(r, 1, "output_logits"), axis=1)
@@ -313,11 +342,11 @@ class AdversariallyCensoredNN(SimpleNN):
 
     def build_loss(self, y, a, yhat_logits, ahat_logits):
         primary_loss = tf.reduce_mean(
-            tf.sigmoid_cross_entropy_with_logits(labels=y,
-                                                 logits=yhat_logits))
+            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
+                                                    logits=yhat_logits))
         adv_loss = tf.reduce_mean(
-            tf.sigmoid_cross_entropy_with_logits(labels=a,
-                                                 logits=ahat_logits))
+            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(a, tf.float32),
+                                                    logits=ahat_logits))
         overall_loss = primary_loss - self.hparams["adv_loss_scalar"]*adv_loss
         return overall_loss
 

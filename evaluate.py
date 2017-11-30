@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 import os
-from algos.baselines import SimpleNN, ParityNN
+from algos.baselines import SimpleNN, ParityNN, AdversariallyCensoredNN
 from utils.data_utils import adult_dataset
 from utils.misc import increment_path
 import utils.tf_utils as U
@@ -45,10 +45,6 @@ else:
 print("Logging data to {}".format(logdir))
 print("Loading Adult dataset...")
 train_dataset, validation_dataset = adult_dataset(datadir=datadir)
-# train_dataset, validation_dataset = adult_dataset(
-    # datadir=datadir,
-    # removable_columns=["sex", "capital-gain", "income>50k"],
-    # objective=lambda s: int(s['capital-gain']>0))
 print("...dataset loaded.")
 inputsize = train_dataset["data"].shape[1]
 print("Launching Tensorboard.\nTo visualize, navigate to "
@@ -57,22 +53,40 @@ print("Launching Tensorboard.\nTo visualize, navigate to "
 tensorboard_process = U.launch_tensorboard(logdir)
 print("Initializing classifier...")
 layersizes = [100, 100]
-c = SimpleNN()
-c.build(inputsize, hparams={"layersizes":layersizes})
+c = AdversariallyCensoredNN()
+c.build(inputsize, hparams={"inputsize": inputsize,
+                            "layersizes":layersizes,
+                            "adv_sees_label": True,
+                           })
 if train:
     print("Training network...")
-    c.train(train_dataset, logdir, epochs=50,
+    c.train(train_dataset, logdir, epochs=20,
             validation_dataset=validation_dataset)
     savepath = c.save_model(os.path.join(logdir, "model.ckpt"))
     assert savepath == tf.train.latest_checkpoint(logdir), "Paths unequal: {}, {}".format(savepath, tf.train.latest_checkpoint(logdir))
-savepath = tf.train.latest_checkpoint(logdir)
-c.load_model(savepath)
-val_embeddings = c.compute_embedding(validation_dataset["data"])
-plot_embeddings(val_embeddings,
-                validation_dataset["label"],
-                validation_dataset["protected"],
-                plot3d=True,
-                subsample=500,
-                label_names=["income<=50k", "income>50k"],
-                protected_names=["female", "male"])
+
+# ======= Plot out the learned embedding space ===============
+visualize = False
+if visualize:
+    savepath = tf.train.latest_checkpoint(logdir)
+    c.load_model(savepath)
+    # get an equal number of male and female points
+    n = validation_dataset["label"].shape[0]
+    n_males = sum(validation_dataset["label"])
+    limiting_gender = n_males > n - n_males # 1 if men, 0 if women
+    n_limiting_gender = sum(validation_dataset["label"] == limiting_gender)
+    n_per_gender = min(500, n_limiting_gender)
+    inds = np.concatenate([
+        np.where(validation_dataset["label"] == limiting_gender)[0][:n_per_gender],
+        np.where(validation_dataset["label"] != limiting_gender)[0][:n_per_gender]],
+        axis=0)
+    vis_dataset = {k:v[inds, ...] for k, v in validation_dataset.items()}
+    val_embeddings = c.compute_embedding(vis_dataset["data"])
+    plot_embeddings(val_embeddings,
+                    vis_dataset["label"],
+                    vis_dataset["protected"],
+                    plot3d=True,
+                    subsample=False,
+                    label_names=["income<=50k", "income>50k"],
+                    protected_names=["female", "male"])
 tensorboard_process.join()
