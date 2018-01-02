@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib as mpl
+mpl.use('TkAgg')
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from sklearn.decomposition.pca import PCA

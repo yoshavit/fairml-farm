@@ -1,4 +1,6 @@
 import numpy as np
+import matplotlib as mpl
+mpl.use('TkAgg')
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 

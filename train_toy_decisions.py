@@ -15,6 +15,8 @@ parser.add_argument('-epochs', type=int, default=200,
 args = parser.parse_args()
 import numpy as np
 import tensorflow as tf
+import matplotlib as mpl
+mpl.use('TkAgg')
 import matplotlib.pyplot as plt
 from algos import construct_classifier
 from toyexamples.synthetic_data import SquareBlock, ToyWorld

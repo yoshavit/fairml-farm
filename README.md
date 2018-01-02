@@ -21,6 +21,15 @@ Given data 'X', labels 'Yϵ{0, 1}', and protected attribute 'Aϵ{0,1}', we want 
 
 ## Getting started
 
+This project runs in Python 3 (developed in 3.5.2).
+To get started, navigate to the project's root directory, and call:
+
+'pip install -e .'
+
+to install the various dependencies. Running all the project's code requires
+ 'numpy', 'tensorflow' (1.4.0 or later), 'matplotlib', 'pandas', and 'sklearn'.
+ (The previous command will install these if you don't have them yet).
+
 TODO: add a setup guide
 
 ### Installation
