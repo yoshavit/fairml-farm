@@ -89,7 +89,11 @@ def get_dataset(dataset_name,
         if not removable_columns: removable_columns = ['sex', 'income>50k']
         if not protectedfn: protectedfn=lambda s: "Male" in s['sex']
         if not labelfn: labelfn=lambda s: ">50K" in s['income>50k']
-    if dataset_name == 'heloc':
+    elif dataset_name == 'heloc':
+        # FICO hasn't yet given enough info on their 'HELOC' credit score
+        # dataset for this to be sufficiently supported yet.
+        # To learn more, check https://community.fico.com/community/xml/pages/overview
+        raise NotImplementedError
         train_df, val_df = fetch_heloc_dataset(datadir)
         if not removable_columns:
             removable_columns = 'prf--Risk Performance'

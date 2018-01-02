@@ -2,21 +2,28 @@ import numpy as np
 import tensorflow as tf
 import os
 from algos import construct_classifier
-from utils.data_utils import adult_dataset
+from utils.data_utils import get_dataset
 from utils.misc import increment_path
 import utils.tf_utils as U
 hparams_list = []
 
+# Run a series of side-by-side training comparisons (visualized in tensorboard)
+# to understand the influence of the different fairness regularizers on
+# performance + fairness metrics.
+
 # ========== EXPERIMENT PARAMETERS ==========
+lamda = 5
 hparams_list.append({
     "classifier_type": "simplenn",
 })
-hparams_list.append({
-    "classifier_type": "paritynn",
-})
-hparams_list.append({
-    "classifier_type": "adversariallycensorednn"
-})
+for hparam in ["dpe_scalar", "fnpe_scalar", "fppe_scalar", "cpe_scalar"]:
+    hparams_list.append({
+        "experiment_name": "with_" + hparam,
+        "classifier_type": "paritynn",
+        "dpe_scalar": 0.0,
+    })
+    hparams_list[-1][hparam] = lamda
+
 n_epochs = 20
 
 experiment_name = "comparisontest"
@@ -32,7 +39,7 @@ experiment_dir = increment_path(os.path.join(masterdir, "logs",
 os.makedirs(experiment_dir)
 print("Logging experiments data to {}".format(experiment_dir))
 print("Loading Adult dataset...")
-train_dataset, validation_dataset = adult_dataset(datadir=datadir)
+train_dataset, validation_dataset = get_dataset("adult", datadir=datadir)
 print("...dataset loaded.")
 inputsize = train_dataset["data"].shape[1]
 print("Launching Tensorboard.\nTo visualize, navigate to "
@@ -54,4 +61,5 @@ for hparams in hparams_list:
         print("======= Training for {} epochs ===========".format(n_epochs))
         classifier.train(train_dataset, logdir, epochs=n_epochs,
                          validation_dataset=validation_dataset)
+print("Experiments complete!")
 tensorboard_process.join()

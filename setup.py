@@ -18,6 +18,6 @@ setup(
     author='Yonadav Shavit',  # Optional
     author_email='yonadav.shavit@gmail.com',  # Optional
     packages=find_packages(),  # Required
-    install_requires=['numpy', 'tensorflow>=1.4', 'matplotlib', 'sklearn',
-                      'pandas'],  # Optional
+    install_requires=['numpy', 'tensorflow>=1.4', 'matplotlib>=2.1.1', 'sklearn',
+                      'pandas>=0.21.0'],  # Optional
 )

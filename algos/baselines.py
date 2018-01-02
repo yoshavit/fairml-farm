@@ -61,7 +61,7 @@ class SimpleNN(BaseClassifier):
         return {
             "inputsize": 105, # for Adult dataset
             "learning_rate": 3e-4,
-            "layersizes": [100,00],
+            "layersizes": [100,100],
             "batchsize": 32,
             "with_dropout": False,
             "l2_weight_penalty": 0.0,
@@ -152,8 +152,10 @@ class SimpleNN(BaseClassifier):
         crossentropy = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
                                                     logits=yhat_logits))
-        l2_penalty = tf.reduce_mean(tf.trainable_variables(scope="classifier"))
-        return crossentropy + self.hparams["l2_penalty"]*l2_penalty
+        l2_penalty = tf.reduce_mean(tf.concat(
+            [tf.reshape(var, [-1]) for var in
+             tf.trainable_variables(scope="classifier")], axis=0))
+        return crossentropy + self.hparams["l2_weight_penalty"]*l2_penalty
 
     def build_metrics(self, y, a, yhat_logits):
         yhat = tf.sigmoid(yhat_logits)
@@ -329,11 +331,15 @@ class ParityNN(SimpleNN):
         fnpe, fppe = U.equalized_odds_discrimination(yhat, a, y)
         dpe, fnpe, fppe = U.zero_nans(dpe, fnpe, fppe)
         cpe = U.calibration_parity_loss(yhat, a, y, yhat_logits)
+        l2_penalty = tf.reduce_mean(tf.concat(
+            [tf.reshape(var, [-1]) for var in
+             tf.trainable_variables(scope="classifier")], axis=0))
         overall_loss = crossentropy +\
                 self.hparams["dpe_scalar"]*dpe +\
                 self.hparams["fnpe_scalar"]*fnpe +\
                 self.hparams["fppe_scalar"]*fppe +\
-                self.hparams["cpe_scalar"]*cpe
+                self.hparams["cpe_scalar"]*cpe +\
+                self.hparams["l2_weight_penalty"]*l2_penalty
         return overall_loss
 
 class AdversariallyCensoredNN(SimpleNN):
