@@ -50,30 +50,32 @@ def fetch_adult_dataset(datadir=None):
     validation_dataset = full_df.iloc[trainset_size:, :]
     return training_dataset, validation_dataset
 
-def adult_dataset(datadir=None,
-                  normalize=False,
-                  removable_columns=['sex', 'income>50k'],
-                  protectedfn=lambda s: "Male" in s['sex'],
-                  labelfn=lambda s: ">50K" in s['income>50k']
-                 ):
+def fetch_heloc_dataset(datadir=None):
+    pass
+
+def get_dataset(dataset_name,
+                datadir=None,
+                normalize=False,
+                removable_columns=None,
+                protectedfn=None,
+                labelfn=None
+               ):
     """Fetches and processes the Adult dataset into data, protected, and label
     groupings.
     Args:
+        dataset_name - name of the dataset to be fetched (either 'adult' or
+            'heloc')
         datadir - the directory to which the data had been previously
             downloaded, or will be downloaded.
         normalize - if True, training data are normalized to be 0 mean and unit
             variance, and test data have the same transformations (computed on
             training set) applied to them. Default False.
         removable_columns - columns from the original dataset to be removed
-            during execution. Default ['sex', 'income>50k']
+            during execution.
         protectedfn -  function, computed on a row in the adult dataset, for
             extracting a protected attribute from the dataset.
-            Default: lambda s: "Male" in s['sex'],
         labelfn -  function, computed on a row in the adult dataset, for
             extracting a label from the dataset.
-            Default: lambda s: ">50K" in s['income>50k']
-            (WARNING: due to formatting of the original data, categories for
-            'income>50k' are different for the train and validation sets)
     Returns:
         train_dataset - a dictionary of three numpy arrays, containing fields:
             "data" - the data to be trained on
@@ -82,7 +84,19 @@ def adult_dataset(datadir=None,
         validation_dataset - same as train_dataset, but for the validation
             examples
     """
-    train_df, val_df = fetch_adult_dataset(datadir)
+    if dataset_name == 'adult':
+        train_df, val_df = fetch_adult_dataset(datadir)
+        if not removable_columns: removable_columns = ['sex', 'income>50k']
+        if not protectedfn: protectedfn=lambda s: "Male" in s['sex']
+        if not labelfn: labelfn=lambda s: ">50K" in s['income>50k']
+    if dataset_name == 'heloc':
+        train_df, val_df = fetch_heloc_dataset(datadir)
+        if not removable_columns:
+            removable_columns = 'prf--Risk Performance'
+            raise NotImplementedError
+        # add the other if not checks to populate other variables
+    else:
+        raise ValueError("dataset_name must be 'adult' or 'heloc'")
     train_data = train_df.drop(columns=removable_columns).values
     if normalize:
         train_data_mean = train_data.mean(axis=0)

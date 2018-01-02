@@ -1,6 +1,7 @@
 from algos.baselines import SimpleNN, ParityNN, AdversariallyCensoredNN
+# Import new classifier classes
 
-# Add all new classifier types to this list!
+# Add all new classifier types to this list
 classifier_types = [SimpleNN, ParityNN, AdversariallyCensoredNN]
 
 def construct_classifier(hparams, sess=None, savefile=None):

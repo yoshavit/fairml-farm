@@ -51,8 +51,7 @@ class BaseClassifier(ABC):
 class SimpleNN(BaseClassifier):
     name = "simplenn"
     def __init__(self, sess=None):
-        if sess is None:
-            self.sess = tf.Session()
+        self.sess = sess if sess is not None else tf.Session()
         self.built = False
 
     def check_built(self):
@@ -64,7 +63,9 @@ class SimpleNN(BaseClassifier):
             "learning_rate": 3e-4,
             "layersizes": [100,00],
             "batchsize": 32,
-            "with_dropout":True,
+            "with_dropout": False,
+            "l2_weight_penalty": 0.0,
+            "optimizer": tf.train.AdamOptimizer,
         }
 
     def build(self, hparams={}):
@@ -89,26 +90,37 @@ class SimpleNN(BaseClassifier):
         # Make copies of the metrics, and store different avgs for the train
         # and validation copies
         train_metrics = [tf.identity(m) for m in metrics]
-        ema = tf.train.ExponentialMovingAverage(0.99)
+        train_ema = tf.train.ExponentialMovingAverage(0.99)
         self.global_step = tf.Variable(0, trainable=False)
         inc_global_step = tf.assign_add(self.global_step,
                                         self.hparams["batchsize"])
         with tf.control_dependencies(opt_ops + [inc_global_step]):
-            self.train_op = U.ema_apply_wo_nans(ema, train_metrics)
+            self.train_op = U.ema_apply_wo_nans(train_ema, train_metrics)
         self.train_summaries = tf.summary.merge([
-            tf.summary.scalar(metric_name, ema.average(metric), family="train")
+            tf.summary.scalar(metric_name, train_ema.average(metric), family="train")
             for metric_name, metric in zip(metric_names, train_metrics)])
 
         val_metrics =  [tf.identity(m) for m in metrics]
+        val_ema = tf.train.ExponentialMovingAverage(0.99)
         # We also compute the moving-average for validation error
-        self.validation_op = U.ema_apply_wo_nans(ema, val_metrics)
+        self.validation_op = U.ema_apply_wo_nans(val_ema, val_metrics)
         # Reinitialize the moving average (i.e. return to 0.0) for each epoch
         # of the validation metrics
         self.restart_validation_op = tf.variables_initializer([
-            ema.average(metric) for metric in val_metrics])
+            val_ema.average(metric) for metric in val_metrics])
         self.val_summaries = tf.summary.merge([
-            tf.summary.scalar(metric_name, ema.average(metric), family="val")
+            tf.summary.scalar(metric_name, val_ema.average(metric), family="val")
             for metric_name, metric in zip(metric_names, val_metrics)])
+        # alias for computing metrics w/o tensorboard
+        self.metric_dict = {"val_" + metric_name:
+                            val_ema.average(metric_tensor) for
+                            metric_name, metric_tensor in
+                            zip(metric_names, val_metrics)}
+        self.metric_dict.update({"train_" + metric_name:
+                                 train_ema.average(metric_tensor)
+                                 for metric_name, metric_tensor in
+                                 zip(metric_names, train_metrics)})
+
 
         # ======= prediction pipeline ================
         self.prediction_x = tf.placeholder(tf.float32, shape=[None,
@@ -132,7 +144,7 @@ class SimpleNN(BaseClassifier):
         metrics = [loss] + metrics
         metric_names = ['overall_loss'] + metric_names
         opt_ops = [
-            tf.train.AdamOptimizer(self.hparams["learning_rate"]).minimize(loss)
+            self.hparams["optimizer"](self.hparams["learning_rate"]).minimize(loss)
         ]
         return opt_ops, yhat, embedding, metrics, metric_names
 
@@ -140,7 +152,8 @@ class SimpleNN(BaseClassifier):
         crossentropy = tf.reduce_mean(
             tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
                                                     logits=yhat_logits))
-        return crossentropy
+        l2_penalty = tf.reduce_mean(tf.trainable_variables(scope="classifier"))
+        return crossentropy + self.hparams["l2_penalty"]*l2_penalty
 
     def build_metrics(self, y, a, yhat_logits):
         yhat = tf.sigmoid(yhat_logits)
@@ -151,13 +164,14 @@ class SimpleNN(BaseClassifier):
             tf.equal(tf.greater(yhat_logits, 0.0), y),
             tf.float32))
         dpe = U.demographic_parity_discrimination(yhat, a)
-        tppe, fppe = U.equalized_odds_discrimination(yhat, a, y)
+        fnpe, fppe = U.equalized_odds_discrimination(yhat, a, y)
         cpe = U.calibration_parity_loss(yhat, a, y, yhat_logits)
-        metrics = [crossentropy, accuracy, dpe, tppe, fppe, cpe]
+        metrics = [crossentropy, accuracy, dpe, fnpe, fppe, cpe]
+        # order of the first two metrics is important for print-logging
         metric_names = ["crossentropy",
                         "accuracy",
                         "demographic_parity_error",
-                        "true_positive_parity_error",
+                        "false_negative_parity_error",
                         "false_positive_parity_error",
                         "calibration_parity_error"]
         return metrics, metric_names
@@ -170,35 +184,37 @@ class SimpleNN(BaseClassifier):
             embedding = r
             if self.hparams["with_dropout"]:
                 r = tf.nn.dropout(r, self.keep_prob)
-            yhat_logits = tf.squeeze(U._linear(r, 1, "output_logits"), axis=1)
+            yhat_logits = tf.squeeze(U._linear(r, 1, "fc_final"), axis=1)
             yhat = tf.sigmoid(yhat_logits)
             return yhat, yhat_logits, embedding
 
-    def train(self, training_dataset, logdir, epochs=10, keep_prob=0.5,
+    def train(self, training_dataset, logdir=None, epochs=10, keep_prob=0.5,
               validation_dataset=None, validation_batches=None):
         self.check_built()
-        # if validation_batches is None, runs all batches
-        sw = tf.summary.FileWriter(logdir)
+        logging = logdir is not None
+        if logging:
+            sw = tf.summary.FileWriter(logdir)
+
         for epoch in range(epochs):
             self.sess.run(self.training_iterator.initializer,
                           feed_dict={
                               self.dataset_X: training_dataset["data"],
                               self.dataset_Y: training_dataset["label"],
                               self.dataset_A: training_dataset["protected"]})
-            print("Epoch {}...".format(epoch), end=" ")
+            print("Epoch {:3}...".format(epoch), end=" ")
             starttime = time.clock()
             steps = 0
             while True:
                 steps += 1
                 try:
                     self.sess.run(self.train_op, feed_dict={self.keep_prob: keep_prob})
-                    if steps % 100 == 0:
+                    if steps % 100 == 0 and logging:
                         sw.add_summary(self.sess.run(self.train_summaries),
                                        self.sess.run(self.global_step))
                 except tf.errors.OutOfRangeError:
                     break
-            sw.add_summary(self.sess.run(self.train_summaries),
-                           self.sess.run(self.global_step))
+            if logging: sw.add_summary(self.sess.run(self.train_summaries),
+                                       self.sess.run(self.global_step))
             # validation stats
             if validation_dataset is not None:
                 self.sess.run(self.training_iterator.initializer,
@@ -208,18 +224,27 @@ class SimpleNN(BaseClassifier):
                                   self.dataset_A: validation_dataset["protected"]})
                 steps = 0
                 if validation_batches is None: validation_batches = float("inf")
-                self.sess.run(self.restart_validation_op)
+                # self.sess.run(self.restart_validation_op)
                 while steps < validation_batches:
                     steps +=1
                     try:
                         self.sess.run(self.validation_op, feed_dict={self.keep_prob: 1.0})
                     except tf.errors.OutOfRangeError:
                         break
-                sw.add_summary(self.sess.run(self.val_summaries),
-                               self.sess.run(self.global_step))
-            sw.flush()
-            print("complete after {:0.2f} seconds.".format(time.clock() -
-                                                      starttime))
+                if logging:
+                    sw.add_summary(self.sess.run(self.val_summaries),
+                                   self.sess.run(self.global_step))
+            if logging: sw.flush()
+            endmsg = "complete after {:0.2f} seconds. ".format(time.clock() -
+                                                              starttime)
+            if validation_dataset is not None:
+                metric_dict = self.sess.run(self.metric_dict)
+                printed_metrics = ["val_crossentropy",
+                                   "train_accuracy",
+                                   "val_calibration_parity_error"]
+                endmsg += ", ".join(["{} = {:0.2e}".format(pm, metric_dict[pm])
+                                     for pm in printed_metrics])
+            print(endmsg)
 
     def load_model(self, filename):
         self.check_built()
@@ -272,14 +297,26 @@ class SimpleNN(BaseClassifier):
                 break
         return np.concatenate(yhatbatched, axis=0)
 
+    def extract_final_layer_weights(self):
+        if len(self.hparams["layersizes"]) > 0:
+            raise ValueError("Final layer weights are not explanatory when"
+                               "classifier is a multi-layer NN")
+        # TODO: find a cleanerway to grab a variable by name
+        weights = [var for var in tf.global_variables()
+                   if "classifier/fc_final/W:0" in var.name][0]
+        bias = [var for var in tf.global_variables()
+                if "classifier/fc_final/b:0" in var.name][0]
+        return weights, bias
+
 class ParityNN(SimpleNN):
     name = "paritynn"
     def default_hparams(self):
         hparams = super().default_hparams()
         hparams.update({
             "dpe_scalar": 1.0,
-            "tppe_scalar": 0.0,
+            "fnpe_scalar": 0.0,
             "fppe_scalar": 0.0,
+            "cpe_scalar": 0.0,
         })
         return hparams
 
@@ -289,12 +326,14 @@ class ParityNN(SimpleNN):
                                                     logits=yhat_logits))
         yhat = tf.sigmoid(yhat_logits)
         dpe = U.demographic_parity_discrimination(yhat, a)
-        tppe, fppe = U.equalized_odds_discrimination(yhat, a, y)
-        dpe, tppe, fppe = U.zero_nans(dpe, tppe, fppe)
+        fnpe, fppe = U.equalized_odds_discrimination(yhat, a, y)
+        dpe, fnpe, fppe = U.zero_nans(dpe, fnpe, fppe)
+        cpe = U.calibration_parity_loss(yhat, a, y, yhat_logits)
         overall_loss = crossentropy +\
                 self.hparams["dpe_scalar"]*dpe +\
-                self.hparams["tppe_scalar"]*tppe +\
-                self.hparams["fppe_scalar"]*fppe
+                self.hparams["fnpe_scalar"]*fnpe +\
+                self.hparams["fppe_scalar"]*fppe +\
+                self.hparams["cpe_scalar"]*cpe
         return overall_loss
 
 class AdversariallyCensoredNN(SimpleNN):
@@ -321,10 +360,10 @@ class AdversariallyCensoredNN(SimpleNN):
         metric_names = ['overall_loss'] + metric_names
         nrml_params = [v for v in tf.global_variables() if "adversary" not in v.name]
         adv_params = [v for v in tf.global_variables() if "adversary" in v.name]
-        nrml_opt_op = tf.train.AdamOptimizer(self.hparams["learning_rate"]
-                                            ).minimize(loss, var_list=nrml_params)
-        adv_opt_op = tf.train.AdamOptimizer(self.hparams["adv_learning_rate"]
-                                           ).minimize(-1*loss, var_list=adv_params)
+        nrml_opt_op = self.hparams["optimizer"](self.hparams["learning_rate"]
+                                               ).minimize(loss, var_list=nrml_params)
+        adv_opt_op = self.hparams["optimizer"](self.hparams["adv_learning_rate"]
+                                              ).minimize(-1*loss, var_list=adv_params)
         opt_ops = [nrml_opt_op, adv_opt_op]
         return opt_ops, yhat, z, metrics, metric_names
 

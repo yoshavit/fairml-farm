@@ -53,8 +53,8 @@ print("Launching Tensorboard.\nTo visualize, navigate to "
 tensorboard_process = U.launch_tensorboard(logdir)
 print("Initializing classifier...")
 layersizes = [100, 100]
-c = AdversariallyCensoredNN()
-c.build(inputsize, hparams={"inputsize": inputsize,
+c = ParityNN()
+c.build(hparams={"inputsize": inputsize,
                             "layersizes":layersizes,
                             "adv_sees_label": True,
                            })

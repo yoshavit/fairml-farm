@@ -47,7 +47,7 @@ def launch_tensorboard(logdir, tensorboard_path=None):
 # ======= Bias-specific Ops =========================
 
 def demographic_parity_discrimination(yhat, a):
-    """Computes the quared difference in the mean prediction between protected
+    """Computes the difference in the mean prediction between protected
     classes. (https://www.cs.toronto.edu/~toni/Papers/icml-final.pdf Eq. 14)
     Args:
         yhat - n x 1 tensor of predictions
@@ -57,11 +57,11 @@ def demographic_parity_discrimination(yhat, a):
         A scalar tensor of the difference in mean prediction between classes.
     """
     yhat_a0, yhat_a1 = tf.dynamic_partition(yhat, tf.cast(a, tf.int32), 2)
-    disc = tf.square(tf.reduce_mean(yhat_a0) - tf.reduce_mean(yhat_a1))
+    disc = tf.abs(tf.reduce_mean(yhat_a0) - tf.reduce_mean(yhat_a1))
     return disc
 
 def equalized_odds_discrimination(yhat, a, y):
-    """Computes the squared difference in the mean prediction between protected classes,
+    """Computes the difference in the mean prediction between protected classes,
     conditioned on the true outcome. Equivalent to the deviation from
     'Equalized Odds' defined in https://arxiv.org/pdf/1610.02413.pdf
     Args:
@@ -70,19 +70,19 @@ def equalized_odds_discrimination(yhat, a, y):
             protected class
         y - n x 1 tf.bool tensor marking the individual's true outcome
     Returns:
-        true_positive_parity_error - a scalar tensor of the mean squared deviation for
-            positive outcomes
-        false_positive_parity_error - a scalar tensor of the mean squared deviation for
+        false_negative_parity_error - a scalar tensor of the mean deviation for
+            negative outcomes
+        false_positive_parity_error - a scalar tensor of the mean deviation for
             negative outcomes
     """
     partitions = tf.cast(y, tf.int32)*2 + tf.cast(a, tf.int32)
     yhat_y0_a0, yhat_y0_a1, yhat_y1_a0, yhat_y1_a1 = tf.dynamic_partition(
         yhat, partitions, 4)
-    true_positive_parity_error = tf.square(tf.reduce_mean(yhat_y0_a0) -
+    false_negative_parity_error = tf.abs(tf.reduce_mean(yhat_y0_a0) -
                                         tf.reduce_mean(yhat_y0_a1))
-    false_positive_parity_error = tf.square(tf.reduce_mean(yhat_y1_a0) -
+    false_positive_parity_error = tf.abs(tf.reduce_mean(yhat_y1_a0) -
                                         tf.reduce_mean(yhat_y1_a1))
-    return true_positive_parity_error, false_positive_parity_error
+    return false_negative_parity_error, false_positive_parity_error
 
 def crossentropy(yhat, y):
     return -(tf.log(yhat)*y + tf.log(1-yhat)*(1-y))
@@ -99,12 +99,12 @@ def calibration_parity_loss(yhat, a, y, yhat_logits=None):
     Returns:
         A scalar tensor of the difference in mean loss between classes.
     """
-
+    # TODO: implement check if there are no members of one of the classes
+    a = tf.cast(a, tf.int32)
     y_a0, y_a1 = tf.dynamic_partition(tf.cast(y, tf.float32),
-                                      tf.cast(a, tf.int32), 2)
+                                      a, 2)
     if yhat_logits is not None:
-        yhat_logits_a0, yhat_logits_a1 = tf.dynamic_partition(
-            yhat_logits, tf.cast(a, tf.int32), 2)
+        yhat_logits_a0, yhat_logits_a1 = tf.dynamic_partition(yhat_logits, a, 2)
         disc = tf.abs(
             tf.reduce_mean(
                 tf.nn.sigmoid_cross_entropy_with_logits(labels=y_a0,
@@ -113,8 +113,7 @@ def calibration_parity_loss(yhat, a, y, yhat_logits=None):
                 tf.nn.sigmoid_cross_entropy_with_logits(labels=y_a1,
                                                         logits=yhat_logits_a1)))
     else:
-        yhat_a0, yhat_a1 = tf.dynamic_partition(
-            yhat, tf.cast(a, tf.int32), 2)
+        yhat_a0, yhat_a1 = tf.dynamic_partition(yhat, a, 2)
         disc = tf.abs(
             tf.reduce_mean(crossentropy(yhat_a0, y_a0))
             - tf.reduce_mean(crossentropy(yhat_a1, y_a1))
