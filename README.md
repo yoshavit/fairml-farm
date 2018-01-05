@@ -5,6 +5,9 @@ to each other, so that we can more quickly compare new approaches against previo
 and compare and contrast the different algorithms. The ultimate goal is to provide a playground to help
 build intuition about different definitions and approaches to fairness.
 
+This is very much a work in progress, and I would love your feedback!
+ (On desired features, explanations, or even code quality.)
+
 ## Overview
 The main components of this project are:
 
@@ -13,11 +16,12 @@ The main components of this project are:
 	* *Synthetic Datasets* an interface for creating synthetic fairness datasets (w/ built-in visualizations)
 * *Evaluation:* Side-by-side comparisons of different algorithms' behaviors across a slew of fairness metrics
 
-For now, we'll be dealing exclusively with the classical fairness-in-classification problem setup:
+For now, we'll be dealing exclusively with the much-studied problem of group-fairness in classification:
 
 Given data `X`, labels `Yϵ{0, 1}`, and protected attribute `Aϵ{0,1}`, we want to construct some classifier `c(X)`
  which is both predictive of `Y`, and "fair" with respect to the two groups `A=0` and `A=1`.
  There are many definitions for such fairness, and each algorithm may be tuned to a different definition.
+For an introduction to many of these approaches, check out [this page](https://speak-statistics-to-power.github.io/fairness/).
 
 ## Getting started
 
@@ -28,16 +32,28 @@ pip install -e .
 ```
 
 to install the various dependencies. Running all the project's code requires
- `numpy`, `tensorflow` (1.4.0 or later), `matplotlib`, `pandas`, and `sklearn`.
+ `numpy`, `tensorflow>=1.4.0` (1.4.0 or later), `matplotlib>=2.1.1`, `pandas>=0.21.0`, and `sklearn`.
  (The previous command will install these if you don't have them yet).
 
-TODO: add a setup guide
+It's easy to modify the code to add in your own fairness algorithms or datasets.
+Check out (this short guide)[how_to_add.md] on where you'll need to modify the code.
 
-### Installation
-### Running the toy dataset example
-## Adding a new implementation
+Also, consider submitting a pull-request to add your own stuff in!
+ That way, we can build up a comprehensive set of implementations!
+
+### Running the examples
+
+To watch the training dynamics of a particular fairness algorithm, 
+
+To see a side-by-side performance comparison of a simple NN with different fairness
+regularizers, call `train_and_compare.py`. (Be sure to open your local
+ (Tensorboard)[http://0.0.0.0:6006/]!)
+
+To view how linear classifiers make fair decisions on toy data, and how 
+the decision boundary shifts as we change the hyperparameter weighting
+ classification loss vs. fairness loss, check out `train_toy_datasets.py`.
 
 ## Future work
-* Add support for more standard datasets (German, the hospital one(?))
 * Add module on fair representation learning algorithms
+* Add easy way to add new fairness metrics (non-TF dependent) and add to docs
 

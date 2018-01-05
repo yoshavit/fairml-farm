@@ -1,4 +1,3 @@
-import numpy as np
 import tensorflow as tf
 import os
 from algos import construct_classifier

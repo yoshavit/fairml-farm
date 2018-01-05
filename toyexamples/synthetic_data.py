@@ -69,21 +69,28 @@ class ToyWorld:
         outcomes = draws["label"]
         if fig is None: fig = plt.figure()
         self.axs = fig.subplots(1, 3, sharex=True, sharey=True)
+        titles = ["Group 0", "Group 1", "Both Groups"]
+        for i, ax in enumerate(self.axs):
+            ax.set_title(titles[i])
+        handles = []
         for group in [0, 1]:
             x = xs[groups == group]
             y = ys[groups == group]
             o = outcomes[groups == group]
-            color = ['blue', '#5e2f0e'][group]
+            color = ['blue', 'red'][group]
             for ax in [self.axs[group], self.axs[2]]:
-                ax.scatter(x, y, s=9, c=color)
-                ax.scatter(x, y, s=1, c=np.where(o, 'Chartreuse', 'red'))
-        fig.set_size_inches(9, 3, forward=True)
+                h1 = ax.scatter(x, y, s=16, c=color)
+                h2 = ax.scatter(x, y, s=2, c=np.where(o, 'Chartreuse', 'magenta'))
+                handles.extend([h1, h2])
+        fig.set_size_inches(10, 3, forward=True)
         # fig.tight_layout()
+        return handles
 
     def plot_line(self, a, b, c, label=None, **kwargs):
         """Coordinates of a line written as ax + by + c = 0
         """
         assert self.axs is not [], "Must plot points first to generate axes"
+        handles = []
         for ax in self.axs:
             if b != 0:
                 xs = ax.get_xlim()
@@ -92,9 +99,12 @@ class ToyWorld:
                 ys = ax.get_ylim()
                 xs = [-c/a]*2
             line = Line2D(xs, ys, label=label, **kwargs)
-            ax.add_line(line)
+            h = ax.add_line(line)
+            handles.append(h)
+        return handles
 
     def plot_contour(self, decision_function, lines=3, delta=0.025, color=None):
+        handles = []
         default_ax = self.axs[0] # assumes all axes have same coord system
         x = np.arange(*default_ax.get_xlim(), delta)
         y = np.arange(*default_ax.get_ylim(), delta)
@@ -103,6 +113,8 @@ class ToyWorld:
         for ax in self.axs:
             CS = ax.contour(X, Y, Z, lines, colors=color)
             ax.clabel(CS, fontsize=10, inline=1)
+            handles.append(CS)
+        return handles
 
 
 if __name__ == '__main__':

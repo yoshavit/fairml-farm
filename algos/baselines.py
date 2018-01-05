@@ -1,52 +1,9 @@
-from abc import ABC, abstractmethod
 import numpy as np
 import tensorflow as tf
 import time
-
+import os
+from algos.base import BaseClassifier
 import utils.tf_utils as U
-
-class BaseClassifier(ABC):
-    """Abstract class for binary classifiers.
-    """
-    @property
-    @abstractmethod
-    def name():
-        pass
-    @abstractmethod
-    def build(hparams={}):
-        """ Builds model components to the point where prediction/training can
-        be done.
-        Useful for routines requiring inherited/overwritten methods.
-        """
-    @abstractmethod
-    def load_model(filename):
-        """ Loads the model parameters from file filename
-        """
-        raise NotImplementedError
-    @abstractmethod
-    def save_model(logdir):
-        """ Saves the model parameters
-        Returns the filename for the stored parameters
-        """
-        raise NotImplementedError
-    @abstractmethod
-    def predict(X):
-        """
-        Arguments:
-            X: an n x d matrix of datapoints
-        Returns:
-            Yhat: an n x 1 vector of predicted classifications, each from 0 to 1
-        """
-        raise NotImplementedError
-    @abstractmethod
-    def compute_embedding(X):
-        """
-        Arguments:
-            X: an n x d matrix of datapoints
-        Returns:
-            Z: an n x r lower-dimensional embedding of each of the datapoints
-        """
-        raise NotImplementedError
 
 class SimpleNN(BaseClassifier):
     name = "simplenn"
@@ -83,8 +40,8 @@ class SimpleNN(BaseClassifier):
             (self.dataset_X, self.dataset_Y, self.dataset_A
             )).shuffle(100, reshuffle_each_iteration=True).batch(
                 self.hparams["batchsize"])
-        self.training_iterator = dataset.make_initializable_iterator()
-        x, y, a = self.training_iterator.get_next()
+        self.dataset_iterator = dataset.make_initializable_iterator()
+        x, y, a = self.dataset_iterator.get_next()
         opt_ops, yhat, embedding, metrics, metric_names =\
                 self.build_training_pipeline(x, y, a)
         # Make copies of the metrics, and store different avgs for the train
@@ -133,6 +90,7 @@ class SimpleNN(BaseClassifier):
             x, reuse=True)
         self.saver = tf.train.Saver()
         self.sess.run(tf.global_variables_initializer())
+        self.sw = None
         self.built = True
 
     def build_training_pipeline(self, x, y, a):
@@ -195,10 +153,12 @@ class SimpleNN(BaseClassifier):
         self.check_built()
         logging = logdir is not None
         if logging:
-            sw = tf.summary.FileWriter(logdir)
+            if self.sw is None:
+                self.sw = tf.summary.FileWriter(logdir)
+            self.sw.reopen()
 
         for epoch in range(epochs):
-            self.sess.run(self.training_iterator.initializer,
+            self.sess.run(self.dataset_iterator.initializer,
                           feed_dict={
                               self.dataset_X: training_dataset["data"],
                               self.dataset_Y: training_dataset["label"],
@@ -211,51 +171,66 @@ class SimpleNN(BaseClassifier):
                 try:
                     self.sess.run(self.train_op, feed_dict={self.keep_prob: keep_prob})
                     if steps % 100 == 0 and logging:
-                        sw.add_summary(self.sess.run(self.train_summaries),
-                                       self.sess.run(self.global_step))
+                        self.sw.add_summary(self.sess.run(self.train_summaries),
+                                            self.sess.run(self.global_step))
                 except tf.errors.OutOfRangeError:
                     break
-            if logging: sw.add_summary(self.sess.run(self.train_summaries),
-                                       self.sess.run(self.global_step))
-            # validation stats
+            if logging:
+                self.sw.add_summary(self.sess.run(self.train_summaries),
+                                    self.sess.run(self.global_step))
+                self.sw.flush()
             if validation_dataset is not None:
-                self.sess.run(self.training_iterator.initializer,
-                              feed_dict={
-                                  self.dataset_X: validation_dataset["data"],
-                                  self.dataset_Y: validation_dataset["label"],
-                                  self.dataset_A: validation_dataset["protected"]})
-                steps = 0
-                if validation_batches is None: validation_batches = float("inf")
-                # self.sess.run(self.restart_validation_op)
-                while steps < validation_batches:
-                    steps +=1
-                    try:
-                        self.sess.run(self.validation_op, feed_dict={self.keep_prob: 1.0})
-                    except tf.errors.OutOfRangeError:
-                        break
-                if logging:
-                    sw.add_summary(self.sess.run(self.val_summaries),
-                                   self.sess.run(self.global_step))
-            if logging: sw.flush()
+                self.validate(validation_dataset, logdir, validation_batches,
+                              close_sw_on_exit=False)
             endmsg = "complete after {:0.2f} seconds. ".format(time.clock() -
-                                                              starttime)
-            if validation_dataset is not None:
-                metric_dict = self.sess.run(self.metric_dict)
-                printed_metrics = ["val_crossentropy",
-                                   "train_accuracy",
-                                   "val_calibration_parity_error"]
-                endmsg += ", ".join(["{} = {:0.2e}".format(pm, metric_dict[pm])
-                                     for pm in printed_metrics])
+                                                               starttime)
+            metric_dict = self.sess.run(self.metric_dict)
+            # specify the metrics to be printed on the command line
+            printed_metrics = ["val_crossentropy",
+                               "train_accuracy",
+                               "val_calibration_parity_error"]
+            endmsg += ", ".join(["{} = {:0.2e}".format(pm, metric_dict[pm])
+                                 for pm in printed_metrics])
             print(endmsg)
+        if logging: self.sw.close()
 
-    def load_model(self, filename):
-        self.check_built()
-        self.saver.restore(self.sess, filename)
+    def validate(self, validation_dataset, logdir=None,
+                 validation_batches=None, close_sw_on_exit=True):
+        logging = logdir is not None
+        if logging:
+            if self.sw is None:
+                self.sw = tf.summary.FileWriter(logdir)
+            self.sw.reopen()
+        self.sess.run(self.dataset_iterator.initializer,
+                      feed_dict={
+                          self.dataset_X: validation_dataset["data"],
+                          self.dataset_Y: validation_dataset["label"],
+                          self.dataset_A: validation_dataset["protected"]})
+        steps = 0
+        if validation_batches is None: validation_batches = float("inf")
+        # self.sess.run(self.restart_validation_op)
+        while steps < validation_batches:
+            steps +=1
+            try:
+                self.sess.run(self.validation_op, feed_dict={self.keep_prob: 1.0})
+            except tf.errors.OutOfRangeError:
+                break
+        if logging:
+            self.sw.add_summary(self.sess.run(self.val_summaries),
+                                self.sess.run(self.global_step))
+            self.sw.flush()
+            if close_sw_on_exit:
+                self.sw.close()
 
-    def save_model(self, filepath):
+    def load_model(self, filedir):
         self.check_built()
-        filename = self.saver.save(self.sess, filepath)
-        return filename
+        filepath = os.path.join(filedir, "model.ckpt")
+        self.saver.restore(self.sess, filepath)
+
+    def save_model(self, filedir):
+        self.check_built()
+        filepath = self.saver.save(self.sess, filedir)
+        return filepath
 
     def predict(self, x):
         """Compute the classifier output
@@ -341,70 +316,3 @@ class ParityNN(SimpleNN):
                 self.hparams["cpe_scalar"]*cpe +\
                 self.hparams["l2_weight_penalty"]*l2_penalty
         return overall_loss
-
-class AdversariallyCensoredNN(SimpleNN):
-    name = "adversariallycensorednn"
-    def default_hparams(self):
-        hparams = super().default_hparams()
-        hparams.update({
-            "adv_learning_rate": 3e-4,
-            "adv_layersizes": [],
-            "adv_loss_scalar": 1.0,
-            "adv_sees_label": False,
-        })
-        return hparams
-
-    def build_training_pipeline(self, x, y, a):
-        """Returns loss metrics, metric_names, TODO: more
-        """
-        yhat, yhat_logits, z = self.build_network(x)
-        ahat, ahat_logits = self.build_adversary(z, y)
-        loss = self.build_loss(y, a, yhat_logits, ahat_logits)
-        metrics, metric_names = self.build_metrics(y, a, yhat_logits,
-                                                   ahat_logits)
-        metrics = [loss] + metrics
-        metric_names = ['overall_loss'] + metric_names
-        nrml_params = [v for v in tf.global_variables() if "adversary" not in v.name]
-        adv_params = [v for v in tf.global_variables() if "adversary" in v.name]
-        nrml_opt_op = self.hparams["optimizer"](self.hparams["learning_rate"]
-                                               ).minimize(loss, var_list=nrml_params)
-        adv_opt_op = self.hparams["optimizer"](self.hparams["adv_learning_rate"]
-                                              ).minimize(-1*loss, var_list=adv_params)
-        opt_ops = [nrml_opt_op, adv_opt_op]
-        return opt_ops, yhat, z, metrics, metric_names
-
-    def build_adversary(self, z, y, reuse=False):
-        r = z
-        with tf.variable_scope("adversary", reuse=reuse):
-            if self.hparams["adv_sees_label"]:
-                r = tf.concat([r, tf.expand_dims(tf.cast(y, tf.float32), axis=1)],
-                              axis=1)
-            for i, l in enumerate(self.hparams["adv_layersizes"]):
-                r = U.lrelu(U._linear(r, l, "fc{}".format(i)))
-            ahat_logits = tf.squeeze(U._linear(r, 1, "output_logits"), axis=1)
-            ahat = tf.sigmoid(ahat_logits)
-        return ahat, ahat_logits
-
-    def build_loss(self, y, a, yhat_logits, ahat_logits):
-        primary_loss = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(y, tf.float32),
-                                                    logits=yhat_logits))
-        adv_loss = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(a, tf.float32),
-                                                    logits=ahat_logits))
-        overall_loss = primary_loss - self.hparams["adv_loss_scalar"]*adv_loss
-        return overall_loss
-
-    def build_metrics(self, y, a, yhat_logits, ahat_logits):
-        metrics, metric_names = super().build_metrics(y, a, yhat_logits)
-        adv_crossentropy = tf.reduce_mean(
-            tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.cast(a, tf.float32),
-                                                    logits=ahat_logits))
-        adv_accuracy = tf.reduce_mean(tf.cast(
-            tf.equal(tf.greater(ahat_logits, 0.0), a),
-            tf.float32))
-        metrics += [adv_crossentropy,
-                    adv_accuracy]
-        metric_names += ["adv_crossentropy",
-                         "adv_accuracy"]
-        return metrics, metric_names
