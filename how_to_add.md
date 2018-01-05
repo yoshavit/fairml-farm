@@ -13,7 +13,7 @@ class A:
         return X 
 ```
 If you'd like, consider logging training data using
- (tensorboard)[https://github.com/tensorflow/tensorboard].
+ [tensorboard](https://github.com/tensorflow/tensorboard).
 
 Finally, in `algos/__init__.py`, import your class and add it to `classifier_types`.
 

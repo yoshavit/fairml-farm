@@ -25,33 +25,36 @@ For an introduction to many of these approaches, check out [this page](https://s
 
 ## Getting started
 
-This project runs in Python 3 (developed in 3.5.2).
+This project runs in Python 3 (recommended 3.5 or later).
+
 To get started, navigate to the project's root directory, and call:
 ```bash
 pip install -e .
 ```
 
 to install the various dependencies. Running all the project's code requires
- `numpy`, `tensorflow>=1.4.0` (1.4.0 or later), `matplotlib>=2.1.1`, `pandas>=0.21.0`, and `sklearn`.
+ `numpy`, `tensorflow>=1.4.0`, `matplotlib>=2.1.1`, `pandas>=0.21.0`, and `sklearn`.
  (The previous command will install these if you don't have them yet).
 
 It's easy to modify the code to add in your own fairness algorithms or datasets.
-Check out (this short guide)[how_to_add.md] on where you'll need to modify the code.
+Check out [this short guide](how_to_add.md) on where you'll need to modify the code.
 
 Also, consider submitting a pull-request to add your own stuff in!
  That way, we can build up a comprehensive set of implementations!
 
 ### Running the examples
 
-To watch the training dynamics of a particular fairness algorithm, 
+Call `evaluate.py` to watch the training dynamics of a particular fairness algorithm.
 
-To see a side-by-side performance comparison of a simple NN with different fairness
-regularizers, call `train_and_compare.py`. (Be sure to open your local
- (Tensorboard)[http://0.0.0.0:6006/]!)
+Call `train_and_compare.py` to see a side-by-side performance comparison
+ of a simple NN with different fairness regularizers. (Be sure to open your local
+ [Tensorboard](http://0.0.0.0:6006/)!)
 
-To view how linear classifiers make fair decisions on toy data, and how 
-the decision boundary shifts as we change the hyperparameter weighting
- classification loss vs. fairness loss, check out `train_toy_datasets.py`.
+Check out `train_toy_datasets.py` to view how linear classifiers make fair
+ decisions on toy data. See how the decision boundary shifts as we change
+ the hyperparameter weighting classification loss vs. fairness loss.
+You can observe the behavior for different fairness losses, or change
+ the generated distribution being learned.
 
 ## Future work
 * Add module on fair representation learning algorithms
