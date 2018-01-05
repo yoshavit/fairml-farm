@@ -1,5 +1,5 @@
-from algos.baselines import SimpleNN, ParityNN
-from algos.adversarial_censor import AdversariallyCensoredNN
+from algos.nn_baselines import SimpleNN, ParityNN
+from algos.nn_adv_censor import AdversariallyCensoredNN
 # Import new classifier classes
 
 # Add all new classifier types to this list

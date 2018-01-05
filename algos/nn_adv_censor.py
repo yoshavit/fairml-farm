@@ -1,5 +1,5 @@
 import tensorflow as tf
-from algos.baselines import SimpleNN
+from algos.nn_baselines import SimpleNN
 import utils.tf_utils as U
 
 class AdversariallyCensoredNN(SimpleNN):
