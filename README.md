@@ -37,8 +37,8 @@ to install the various dependencies. Running all the project's code requires
  (The previous command will install these if you don't have them yet).
 
 It's easy to modify the code to add in your own fairness algorithms or datasets.
-Check out [this short guide](how_to_add.md) on where you'll need to modify the code.
 
+Just check out [this short guide](how_to_add.md) on where you'll need to modify the code.  
 Also, consider submitting a pull-request to add your own stuff in!
  That way, we can build up a comprehensive set of implementations!
 

@@ -6,14 +6,14 @@ that trains and implements your algorithm.
 Your algorithm should inherit from the abstract class `algos.base.BaseClassifier`,
  and implement all of its methods.
 
-If the algorithm does not compute an embedding, add a dummy method like
+NOTE: If the algorithm doesn't learn an embedding, add a dummy method like
 ```python
 class A:
     def compute_embeddings(self, X):
         return X 
 ```
-If you'd like, consider logging training data using
- [tensorboard](https://github.com/tensorflow/tensorboard).
+If you'd like, consider logging metrics about your algorithm's training progress and
+performance using [tensorboard](https://github.com/tensorflow/tensorboard).
 
 Finally, in `algos/__init__.py`, import your class and add it to `classifier_types`.
 
