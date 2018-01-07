@@ -46,15 +46,16 @@ Call `train_and_compare.py` to see a side-by-side performance comparison
  [Tensorboard](http://0.0.0.0:6006/)!)
 
 ![legend](/results/paritynn_tensorboardlegend.png)
-![resultsA](/results/paritynn_tensorboard1.png)
-![resultsB](/results/paritynn_tensorboard2.png)
-![resultsC](/results/paritynn_tensorboard3.png)
+![resultsA](/results/paritynn_tensorboard1.png|50%)
+
+![resultsB](/results/paritynn_tensorboard2.png|50%)
+![resultsC](/results/paritynn_tensorboard3.png|50%)
 ('simplenn' is a regular neural network; each of the other networks is adding a loss penalty for violating a certain type of fairness.
 cpe = calibration parity, dpe = demographic parity, fnpe = false negative parity, fppe = false positive parity.)
 
 Check out `train_toy_datasets.py` to view how linear classifiers make fair decisions on toy data.
 For example, below we see how the decision boundary shifts as we change the hyperparameter weighting classification loss vs. demographic parity fairness loss.
-![Results of changing demographic parity error scalar](toy_decision_varying_dpe.png)
+![Results of changing demographic parity error scalar](results/toy_decision_varying_dpe.png)
 (The two demographic groups are red and blue, with different local concentrations. Green is a positive sample, while magenta is negative.
  This example is inspired by [Fig. 1 from Zafar et al](https://people.mpi-sws.org/~mzafar/papers/preferential_fairness_nips2017.pdf#page=2).)
 
