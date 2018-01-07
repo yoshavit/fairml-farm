@@ -46,9 +46,7 @@ Call `train_and_compare.py` to see a side-by-side performance comparison
  [Tensorboard](http://0.0.0.0:6006/)!)
 
 ![legend](/results/paritynn_tensorboardlegend.png)
-
-<img src="/results/paritynn_tensorboardlegend.png" height="250" width="450" >
-<img src="/results/paritynn_tensorboard1.png" height="250" width="450" >
+<img src="/results/paritynn_tensorboard1.png" height="250" width="600" >
 <img src="/results/paritynn_tensorboard2.png" height="250" width="450" >
 <img src="/results/paritynn_tensorboard3.png" height="250" width="450" >
 
