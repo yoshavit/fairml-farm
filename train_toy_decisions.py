@@ -22,7 +22,7 @@ from algos import construct_classifier
 from toyexamples.synthetic_data import SquareBlock, ToyWorld
 
 n_experiments = 10
-varied_hparam_values = [10**i for i in np.linspace(-1, 2.3, n_experiments)]
+varied_hparam_values = [10**i for i in np.linspace(-1, 1.3, n_experiments)]
 lines_per_fn = 1
 cmap = plt.cm.gist_rainbow
 linecolors = [cmap(i) for i in np.linspace(0, 0.9, n_experiments)]
