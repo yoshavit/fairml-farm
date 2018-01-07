@@ -45,8 +45,8 @@ Call `train_and_compare.py` to see a side-by-side performance comparison
  of a simple NN with different fairness regularizers. (Be sure to open your local
  [Tensorboard](http://0.0.0.0:6006/)!)
 
-![legend]{/results/paritynn_tensorboardlegend}
-![results]{/results/paritynn_tensorboard1} ![results]{/results/paritynn_tensorboard2} ![results]{/results/paritynn_tensorboard3}
+![legend]{/results/paritynn_tensorboardlegend.png}
+![results]{/results/paritynn_tensorboard1.png} ![results]{/results/paritynn_tensorboard2.png} ![results]{/results/paritynn_tensorboard3.png}
 ('simplenn' is a regular neural network; each of the other networks is adding a loss penalty for violating a certain type of fairness.
 cpe = calibration parity, dpe = demographic parity, fnpe = false negative parity, fppe = false positive parity.)
 
