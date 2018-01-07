@@ -28,17 +28,14 @@ n_epochs = 20
 experiment_name = "comparisontest"
 # ===========================================
 masterdir = "/tmp/fairml-farm/"
-datadir = masterdir + "data/"
-try:
-    tf.gfile.MakeDirs(datadir)
-except tf.errors.OpError: # folder already exists
-    pass
+base_datadir = masterdir + "data/"
+os.makedirs(base_datadir, exist_ok=True)
 experiment_dir = increment_path(os.path.join(masterdir, "logs",
                                              experiment_name, "exp"))
 os.makedirs(experiment_dir)
 print("Logging experiments data to {}".format(experiment_dir))
 print("Loading Adult dataset...")
-train_dataset, validation_dataset = get_dataset("adult", datadir=datadir)
+train_dataset, validation_dataset = get_dataset("adult", base_datadir=base_datadir)
 print("...dataset loaded.")
 inputsize = train_dataset["data"].shape[1]
 print("Launching Tensorboard.\nTo visualize, navigate to "

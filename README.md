@@ -26,7 +26,7 @@ This project runs in Python 3 (recommended 3.5 or later).
 
 To install the various dependencies, navigate to the project's root directory, and call:
 ```bash
-pip install -e .
+python setup.py install
 ```
 Running all the project's code requires
  `numpy`, `tensorflow>=1.4.0`, `matplotlib>=2.1.1`, `pandas>=0.21.0`, and `sklearn`.
@@ -44,6 +44,10 @@ Call `evaluate.py` to watch the training dynamics of a particular fairness algor
 Call `train_and_compare.py` to see a side-by-side performance comparison
  of a simple NN with different fairness regularizers. (Be sure to open your local
  [Tensorboard](http://0.0.0.0:6006/)!)
+
+![]{/results/paritynn_tensorboardlegend} ![]{/results/paritynn_tensorboard1} ![]{/results/paritynn_tensorboard2} ![]{/results/paritynn_tensorboard3}
+('simplenn' is a regular neural network; each of the other networks is adding a loss penalty for violating a certain type of fairness.
+cpe = calibration parity, dpe = demographic parity, fnpe = false negative parity, fppe = false positive parity.)
 
 Check out `train_toy_datasets.py` to view how linear classifiers make fair decisions on toy data.
  See how the decision boundary shifts as we change the hyperparameter weighting classification loss vs. fairness loss.
